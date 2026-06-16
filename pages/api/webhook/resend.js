@@ -1,31 +1,32 @@
 // POST /api/webhook/resend
 // Receives Resend webhook events, forwards notification via email + Telegram
 
-const RESEND_API_KEY = process.env.RESEND_API_KEY
-const SENDER_EMAIL = process.env.SENDER_EMAIL || 'onboarding@resend.dev'
-const SENDER_NAME = process.env.SENDER_NAME || 'Zenos Mail'
-const NOTIFY_EMAIL = process.env.NOTIFY_EMAIL
-
-function sendTelegram(text) {
+async function sendTelegram(text) {
   const token = process.env.TELEGRAM_BOT_TOKEN
   const chatId = process.env.TELEGRAM_CHAT_ID
-  if (!token || !chatId) return Promise.resolve()
-  return fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ chat_id: chatId, text, parse_mode: 'HTML' }),
-  }).catch(() => {})
+  if (!token || !chatId) return
+  try {
+    await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ chat_id: chatId, text, parse_mode: 'HTML' }),
+    })
+  } catch {}
 }
 
 async function sendNotifyEmail(subject, body) {
-  if (!NOTIFY_EMAIL || !RESEND_API_KEY) return
+  const apiKey = process.env.RESEND_API_KEY
+  const notifyEmail = process.env.NOTIFY_EMAIL
+  const senderEmail = process.env.SENDER_EMAIL || 'onboarding@resend.dev'
+  const senderName = process.env.SENDER_NAME || 'Zenos Mail'
+  if (!notifyEmail || !apiKey) return
   try {
     await fetch('https://api.resend.com/emails', {
       method: 'POST',
-      headers: { 'Authorization': `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' },
+      headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        from: `${SENDER_NAME} <${SENDER_EMAIL}>`,
-        to: [NOTIFY_EMAIL],
+        from: `${senderName} <${senderEmail}>`,
+        to: [notifyEmail],
         subject,
         text: body,
       }),
@@ -33,37 +34,30 @@ async function sendNotifyEmail(subject, body) {
   } catch {}
 }
 
-export async function POST(req) {
-  try {
-    const body = await req.json()
-    const event = body
+export default async function handler(req, res) {
+  if (req.method !== 'POST') {
+    return res.status(405).json({ error: 'Method not allowed' })
+  }
 
-    // Extract email details
+  try {
+    const event = req.body
     const from = event?.data?.from || event?.from || 'unknown'
     const subject = event?.data?.subject || event?.subject || '(no subject)'
     const to = event?.data?.to || event?.to || []
     const toStr = Array.isArray(to) ? to.join(', ') : to
     const type = event?.type || 'unknown event'
 
-    // Build notification text
-    const email = `📨 New email received at ${new Date().toLocaleString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false })}
-    
-From: ${from}
-To: ${toStr}
-Subject: ${subject}
-Type: ${type}`
-
+    const telegramMsg = `📨 ${type}\n\nFrom: ${from}\nTo: ${toStr}\nSubject: ${subject}`
     const notifySubject = `📨 ${subject} — from ${from}`
 
-    // Send notifications in parallel
     await Promise.all([
-      sendTelegram(email),
+      sendTelegram(telegramMsg),
       sendNotifyEmail(notifySubject, `New email received:\n\nFrom: ${from}\nTo: ${toStr}\nSubject: ${subject}\n\n— Zenos Mail`),
     ])
 
-    return Response.json({ ok: true })
+    return res.status(200).json({ ok: true })
   } catch (err) {
     console.error('Webhook error:', err)
-    return Response.json({ ok: false, error: err.message }, { status: 500 })
+    return res.status(500).json({ ok: false, error: err.message })
   }
 }
