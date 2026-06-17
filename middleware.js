@@ -7,7 +7,7 @@ export async function middleware(req) {
   const { pathname } = req.nextUrl
 
   // Public routes
-  if (pathname === '/login' || pathname.startsWith('/api/webhook') || pathname === '/favicon.ico') {
+  if (pathname === '/login' || pathname === '/api/login' || pathname === '/api/logout' || pathname.startsWith('/api/webhook') || pathname === '/favicon.ico') {
     return NextResponse.next()
   }
 
