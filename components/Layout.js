@@ -2,19 +2,18 @@ import { useState, useEffect } from 'react'
 import { useRouter } from 'next/router'
 import Toast from '../components/Toast'
 
-const TABS = [
-  { id: 'send', label: 'SEND' },
-  { id: 'history', label: 'HISTORY' },
-  { id: 'receive', label: 'INBOX' },
-]
-
-export default function DashboardLayout({ children }) {
+export default function DashboardLayout({ children, tabs }) {
   const router = useRouter()
+  const defaultTabs = tabs || [
+    { id: 'send', label: 'SEND' },
+    { id: 'history', label: 'HISTORY' },
+    { id: 'receive', label: 'INBOX' },
+    { id: 'settings', label: 'SETTINGS' },
+  ]
   const [activeTab, setActiveTab] = useState('send')
   const [status, setStatus] = useState('checking')
   const [senderEmail, setSenderEmail] = useState('')
   const [toast, setToast] = useState(null)
-  const [isElectron, setIsElectron] = useState(false)
 
   useEffect(() => {
     fetch('/api/config')
@@ -28,10 +27,6 @@ export default function DashboardLayout({ children }) {
         }
       })
       .catch(() => setStatus('error'))
-  }, [])
-
-  useEffect(() => {
-    setIsElectron(typeof window !== 'undefined' && window.electronAPI)
   }, [])
 
   const handleLogout = async () => {
@@ -53,7 +48,7 @@ export default function DashboardLayout({ children }) {
       </header>
 
       <nav className="nav">
-        {TABS.map(tab => (
+        {defaultTabs.map(tab => (
           <button
             key={tab.id}
             className={`nav__tab${activeTab === tab.id ? ' active' : ''}`}
