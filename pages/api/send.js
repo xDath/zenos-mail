@@ -1,6 +1,14 @@
 // POST /api/send
 // Supports attachments (base64), dynamic sender overrides
 
+export const config = {
+  api: {
+    bodyParser: {
+      sizeLimit: '10mb',
+    },
+  },
+}
+
 async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' })
 
