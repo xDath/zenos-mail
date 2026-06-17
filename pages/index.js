@@ -95,7 +95,7 @@ function SendPanel({ showToast }) {
       if (data.success) {
         showToast({ type: 'success', message: `Sent — ID: ${data.id}` })
         const h = JSON.parse(localStorage.getItem('zenos_history') || '[]')
-        h.unshift({ id: data.id, to: toList.join(', '), cc: ccList.join(', '), bcc: bccList.join(', '), subject: payload.subject, htmlMode, attachments: attachments.map(a => a.filename), time: new Date().toISOString() })
+        h.unshift({ id: data.id, to: toList.join(', '), cc: ccList.join(', '), bcc: bccList.join(', '), subject: payload.subject, body, htmlMode, attachments: attachments.map(a => a.filename), time: new Date().toISOString() })
         if (h.length > 100) h.length = 100
         localStorage.setItem('zenos_history', JSON.stringify(h))
         setTo(''); setCc(''); setBcc(''); setSubject(''); setBody(''); setAttachments([])
@@ -202,6 +202,14 @@ function HistoryPanel() {
               <div className="detail__field"><span>ID:</span> {detail.id}</div>
             </div>
           </div>
+          {detail.body && (
+            <div className="detail__body">
+              {detail.htmlMode
+                ? <div dangerouslySetInnerHTML={{ __html: detail.body }} />
+                : <pre style={{ fontFamily: 'var(--font-mono)', fontSize: 13, lineHeight: 1.6, whiteSpace: 'pre-wrap', color: 'var(--text)' }}>{detail.body}</pre>
+              }
+            </div>
+          )}
         </div>
       </div>
     )
@@ -272,22 +280,7 @@ function InboxPanel({ showToast }) {
   }
 
   if (view === 'detail' && detail) {
-    return (
-      <div className="panel active">
-        <div className="detail">
-          <button className="detail__back" onClick={() => setView('list')}>← BACK TO LIST</button>
-          <div className="detail__header">
-            <h1 className="detail__subject">{detail.subject || '(no subject)'}</h1>
-            <div className="detail__fields">
-              <div className="detail__field"><span>From:</span> {detail.from || '—'}</div>
-              <div className="detail__field"><span>To:</span> {Array.isArray(detail.to) ? detail.to.join(', ') : (detail.to || '—')}</div>
-              <div className="detail__field"><span>Date:</span> {detail.created_at ? formatTime(detail.created_at) : '—'}</div>
-            </div>
-          </div>
-          <div className="detail__body" dangerouslySetInnerHTML={{ __html: detail.html || detail.text || detail.body || '(no content)' }} />
-        </div>
-      </div>
-    )
+    return <InboxDetailView detail={detail} onBack={() => setView('list')} />
   }
 
   return (
@@ -400,6 +393,52 @@ function SettingsPanel({ showToast }) {
         <p style={{ color: 'var(--muted)', fontFamily: 'var(--font-mono)', fontSize: 10, marginTop: 12 }}>
           Once verified, you can send from <code style={{ background: 'var(--bg-secondary)', padding: '1px 4px', fontSize: 9 }}>dwiatma@zenos.studio</code> or any address @zenos.studio.
         </p>
+      </div>
+    </div>
+  )
+}
+
+/* ── INBOX DETAIL (fetches full email body) ───────────────── */
+function InboxDetailView({ detail, onBack }) {
+  const [full, setFull] = useState(null)
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    if (detail?.id) {
+      fetch(`/api/inbox/${detail.id}`)
+        .then(r => r.json())
+        .then(d => {
+          if (d.success) setFull(d.data)
+        })
+        .catch(() => {})
+        .finally(() => setLoading(false))
+    }
+  }, [detail?.id])
+
+  function formatTime(iso) {
+    return new Date(iso).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+  }
+
+  const email = full || detail
+
+  return (
+    <div className="panel active">
+      <div className="detail">
+        <button className="detail__back" onClick={onBack}>← BACK TO LIST</button>
+        <div className="detail__header">
+          <h1 className="detail__subject">{email.subject || '(no subject)'}</h1>
+          <div className="detail__fields">
+            <div className="detail__field"><span>From:</span> {email.from || '—'}</div>
+            <div className="detail__field"><span>To:</span> {Array.isArray(email.to) ? email.to.join(', ') : (email.to || '—')}</div>
+            <div className="detail__field"><span>Date:</span> {email.created_at ? formatTime(email.created_at) : '—'}</div>
+          </div>
+        </div>
+        <div className="detail__body">
+          {loading
+            ? <span style={{ color: 'var(--muted)', fontFamily: 'var(--font-mono)', fontSize: 11 }}>LOADING…</span>
+            : <div dangerouslySetInnerHTML={{ __html: email.html || email.text || email.body || '(no content)' }} />
+          }
+        </div>
       </div>
     </div>
   )
