@@ -6,7 +6,12 @@ export default function Dashboard() {
   return (
     <>
       <Head><title>ZENOS MAIL</title></Head>
-      <Layout tabs={['send', 'history', 'receive', 'settings']}>
+      <Layout tabs={[
+        { id: 'send', label: 'SEND' },
+        { id: 'history', label: 'HISTORY' },
+        { id: 'receive', label: 'INBOX' },
+        { id: 'settings', label: 'SETTINGS' },
+      ]}>
         {({ activeTab, showToast }) => {
           switch (activeTab) {
             case 'send': return <SendPanel showToast={showToast} />
