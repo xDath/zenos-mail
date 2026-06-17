@@ -1,6 +1,7 @@
 // POST /api/webhook/resend
-// Receives Resend webhook events, forwards notification via email + Telegram
+// Receives Resend webhook events, forwards notification via Telegram only
 // Only forwards email.received — skips domain.* and other noise
+// NOTE: NO email-to-self forwarding (caused infinite loop: notify → CF → Resend → webhook → ...)
 
 async function sendTelegram(text) {
   const token = process.env.TELEGRAM_BOT_TOKEN
@@ -15,25 +16,8 @@ async function sendTelegram(text) {
   } catch {}
 }
 
-async function sendNotifyEmail(subject, body) {
-  const apiKey = process.env.RESEND_API_KEY
-  const notifyEmail = process.env.NOTIFY_EMAIL
-  const senderEmail = process.env.SENDER_EMAIL || 'onboarding@resend.dev'
-  const senderName = process.env.SENDER_NAME || 'Zenos Mail'
-  if (!notifyEmail || !apiKey) return
-  try {
-    await fetch('https://api.resend.com/emails', {
-      method: 'POST',
-      headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        from: `${senderName} <${senderEmail}>`,
-        to: [notifyEmail],
-        subject,
-        text: body,
-      }),
-    })
-  } catch {}
-}
+// Removed sendNotifyEmail — caused infinite forward loop (notify → CF forward → Resend → webhook → notify → ...)
+// Telegram notification is sufficient; no email-to-self forwarding.
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -55,12 +39,8 @@ export default async function handler(req, res) {
     const toStr = Array.isArray(to) ? to.join(', ') : to
 
     const telegramMsg = `📨 ${type}\n\nFrom: ${from}\nTo: ${toStr}\nSubject: ${subject}`
-    const notifySubject = `📨 ${subject} — from ${from}`
 
-    await Promise.all([
-      sendTelegram(telegramMsg),
-      sendNotifyEmail(notifySubject, `New email received:\n\nFrom: ${from}\nTo: ${toStr}\nSubject: ${subject}\n\n— Zenos Mail`),
-    ])
+    await sendTelegram(telegramMsg)
 
     return res.status(200).json({ ok: true })
   } catch (err) {
