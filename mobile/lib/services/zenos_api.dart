@@ -139,6 +139,11 @@ class ZenosApi {
     await _request('DELETE', '/api/devices', body: {'token': token});
   }
 
+  Future<int> syncArchive() async {
+    final result = await _request('POST', '/api/mail/sync');
+    return int.tryParse(result['archived']?.toString() ?? '') ?? 0;
+  }
+
   Future<Map<String, dynamic>> _request(
     String method,
     String path, {

@@ -1,0 +1,17 @@
+.git/
+.agents/
+.next/
+.playwright-cli/
+.superdesign/tmp/
+node_modules/
+firebase-debug.log
+
+# Flutter and Android build state are not part of the web deployment.
+mobile/build/
+mobile/.dart_tool/
+mobile/.flutter-plugins-dependencies
+mobile/android/.gradle/
+mobile/android/app/.cxx/
+mobile/design/push-*.png
+mobile/design/play-services-*.png
+mobile/android/key.properties

@@ -1150,16 +1150,44 @@ class _SentScreenState extends State<SentScreen> {
   }
 }
 
-class SettingsScreen extends StatelessWidget {
+class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key, this.api, this.onLogout});
 
   final ZenosApi? api;
   final VoidCallback? onLogout;
 
+  @override
+  State<SettingsScreen> createState() => _SettingsScreenState();
+}
+
+class _SettingsScreenState extends State<SettingsScreen> {
+  bool _syncing = false;
+
   Future<void> _logout() async {
-    if (api != null) await PushService.instance.unregisterCurrentDevice(api!);
-    await api?.logout();
-    onLogout?.call();
+    if (widget.api != null) {
+      await PushService.instance.unregisterCurrentDevice(widget.api!);
+    }
+    await widget.api?.logout();
+    widget.onLogout?.call();
+  }
+
+  Future<void> _syncArchive() async {
+    if (_syncing || widget.api == null) return;
+    setState(() => _syncing = true);
+    try {
+      final count = await widget.api!.syncArchive();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('$count email berhasil disinkronkan.')),
+      );
+    } on ApiException catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(error.message)));
+    } finally {
+      if (mounted) setState(() => _syncing = false);
+    }
   }
 
   @override
@@ -1190,6 +1218,24 @@ class SettingsScreen extends StatelessWidget {
                   title: 'Email baru',
                   subtitle: 'Push Android aktif',
                   statusColor: ZenosColors.tealBright,
+                ),
+                const SizedBox(height: 30),
+                const _SettingsLabel('ARSIP'),
+                _SettingsRow(
+                  title: 'Sinkronkan email lama',
+                  subtitle: _syncing
+                      ? 'Mengambil riwayat dari Resend…'
+                      : 'Ambil hingga 100 email masuk terbaru',
+                  onTap: _syncing ? null : _syncArchive,
+                  trailing: _syncing
+                      ? const SizedBox.square(
+                          dimension: 20,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(
+                          Icons.sync_rounded,
+                          color: ZenosColors.secondaryInk,
+                        ),
                 ),
                 const SizedBox(height: 30),
                 const _SettingsLabel('AKUN'),
