@@ -6,10 +6,12 @@
     "dev": "next dev -p 3077",
     "build": "next build",
     "test": "node --experimental-default-type=module scripts/test-security.mjs",
+    "test:database": "node --env-file=.env.local --experimental-default-type=module scripts/test-database.mjs",
     "start": "next start"
   },
   "dependencies": {
     "@neondatabase/serverless": "^1.2.0",
+    "firebase-admin": "^14.5.0",
     "jose": "^6.2.3",
     "next": "^16.4.0",
     "react": "^19.0.0",

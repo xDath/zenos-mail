@@ -1,11 +1,15 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import 'screens/mail_shell.dart';
 import 'services/zenos_api.dart';
+import 'services/push_service.dart';
 import 'theme/zenos_theme.dart';
 
-void main() {
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await PushService.instance.initialize();
   runApp(const ZenosMailApp());
 }
 
@@ -44,6 +48,9 @@ class _SessionGateState extends State<SessionGate> {
 
   Future<void> _restore() async {
     final authenticated = await _api.restoreSession();
+    if (authenticated) {
+      unawaited(PushService.instance.registerCurrentDevice(_api));
+    }
     if (mounted) setState(() => _authenticated = authenticated);
   }
 
@@ -114,6 +121,7 @@ class _LoginScreenState extends State<LoginScreen> {
     });
     try {
       await widget.api.login(_password.text);
+      unawaited(PushService.instance.registerCurrentDevice(widget.api));
       widget.onAuthenticated();
     } on ApiException catch (error) {
       if (mounted) setState(() => _error = error.message);

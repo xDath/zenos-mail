@@ -55,4 +55,4 @@ assert.equal(JSON.stringify(pushes[0].payload).includes('sender@example.com'), f
 assert.equal((await request('invalid')).statusCode, 401)
 assert.equal(pushes.length, 1)
 globalThis.fetch = originalFetch
-console.log('Security checks passed: domain validation, partial verification, signed webhook, private push payload')
+console.log('Security checks passed: domain validation, partial verification, signed webhook, private ntfy payload')

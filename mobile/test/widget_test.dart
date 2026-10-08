@@ -22,6 +22,10 @@ void main() {
 
     expect(find.text('Kotak masuk'), findsOneWidget);
     expect(find.text('Catatan akhir peluncuran'), findsOneWidget);
+    expect(
+      tester.widget<TextField>(find.byType(TextField).first).controller?.text,
+      isEmpty,
+    );
 
     await tester.enterText(find.byType(TextField).first, 'delivery');
     await tester.pump(const Duration(milliseconds: 350));

@@ -30,6 +30,7 @@ class ZenosApi {
            );
 
   static const _tokenKey = 'zenos_session_token';
+  static const _requestTimeout = Duration(seconds: 20);
 
   final http.Client _client;
   final FlutterSecureStorage _storage;
@@ -130,6 +131,14 @@ class ZenosApi {
     return result['id']?.toString() ?? '';
   }
 
+  Future<void> registerDevice(String token) async {
+    await _request('POST', '/api/devices', body: {'token': token});
+  }
+
+  Future<void> unregisterDevice(String token) async {
+    await _request('DELETE', '/api/devices', body: {'token': token});
+  }
+
   Future<Map<String, dynamic>> _request(
     String method,
     String path, {
@@ -158,19 +167,33 @@ class ZenosApi {
     late http.Response response;
     switch (method) {
       case 'GET':
-        response = await _client.get(uri, headers: headers);
+        response = await _client
+            .get(uri, headers: headers)
+            .timeout(_requestTimeout);
       case 'POST':
-        response = await _client.post(
-          uri,
-          headers: headers,
-          body: body == null ? null : jsonEncode(body),
-        );
+        response = await _client
+            .post(
+              uri,
+              headers: headers,
+              body: body == null ? null : jsonEncode(body),
+            )
+            .timeout(_requestTimeout);
       case 'PATCH':
-        response = await _client.patch(
-          uri,
-          headers: headers,
-          body: body == null ? null : jsonEncode(body),
-        );
+        response = await _client
+            .patch(
+              uri,
+              headers: headers,
+              body: body == null ? null : jsonEncode(body),
+            )
+            .timeout(_requestTimeout);
+      case 'DELETE':
+        response = await _client
+            .delete(
+              uri,
+              headers: headers,
+              body: body == null ? null : jsonEncode(body),
+            )
+            .timeout(_requestTimeout);
       default:
         throw ApiException('Metode API tidak didukung: $method');
     }

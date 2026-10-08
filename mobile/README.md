@@ -9,6 +9,8 @@ Flutter client for the existing Zenos Mail backend. The current build establishe
 - Domain filtering supports `zenos.studio` and `alte.codes`.
 - Message detail, compose, sent, and settings flows are navigable.
 - Production mode authenticates against `https://zenos-mail.vercel.app`, stores its bearer token with Android secure storage, and reads/writes mail through the Vercel API.
+- Firebase Cloud Messaging menampilkan push native, termasuk saat aplikasi berada di background. Mengetuk notifikasi membuka detail email yang benar.
+- Balas dan teruskan membuka compose yang sudah terisi; tombol refresh dan urutan inbox berfungsi.
 - Widget tests use local fixture data so UI and global search can be verified without production credentials.
 
 ## Run
@@ -26,6 +28,7 @@ For a different backend, pass `--dart-define=ZENOS_API_URL=https://example.com`.
 C:\src\flutter\bin\flutter.bat analyze
 C:\src\flutter\bin\flutter.bat test
 C:\src\flutter\bin\flutter.bat build apk --debug
+C:\src\flutter\bin\flutter.bat build apk --release
 ```
 
-The debug APK is written to `build/app/outputs/flutter-apk/app-debug.apk`.
+Debug APK ditulis ke `build/app/outputs/flutter-apk/app-debug.apk`. Release APK ditulis ke `build/app/outputs/flutter-apk/app-release.apk` dan ditandatangani bila `android/key.properties` tersedia.

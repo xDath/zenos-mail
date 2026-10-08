@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "621729089071",
+    "project_id": "ceritaai",
+    "storage_bucket": "ceritaai.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:621729089071:android:913793c45ab694a67ba8da",
+        "android_client_info": {
+          "package_name": "codes.alte.zenos_mail"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCbY0L6wNFbDEI5_INKTQFneVhKpxT1l9I"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

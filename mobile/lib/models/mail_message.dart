@@ -11,6 +11,7 @@ class MailMessage {
     required this.receivedAt,
     this.isUnread = false,
     this.hasAttachment = false,
+    this.attachmentNames = const [],
   });
 
   final String id;
@@ -24,6 +25,7 @@ class MailMessage {
   final DateTime receivedAt;
   final bool isUnread;
   final bool hasAttachment;
+  final List<String> attachmentNames;
 
   factory MailMessage.fromJson(Map<String, dynamic> json) {
     final from = (json['from'] ?? '').toString();
@@ -45,6 +47,15 @@ class MailMessage {
           DateTime.now(),
       isUnread: json['is_read'] != true,
       hasAttachment: attachments is List && attachments.isNotEmpty,
+      attachmentNames: attachments is List
+          ? attachments.map((item) {
+              if (item is Map) {
+                return (item['filename'] ?? item['name'] ?? 'Lampiran')
+                    .toString();
+              }
+              return 'Lampiran';
+            }).toList()
+          : const [],
     );
   }
 

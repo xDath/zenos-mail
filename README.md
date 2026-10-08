@@ -23,6 +23,7 @@ Isi `.env.local` dengan kredensial sendiri. Jangan commit file tersebut.
 | `JWT_SECRET` | String acak panjang untuk menandatangani sesi |
 | `RESEND_WEBHOOK_SECRET` | Signing secret webhook `email.received` dari Resend |
 | `DATABASE_URL` | URL Postgres/Neon untuk arsip email permanen dan pencarian isi |
+| `FIREBASE_SERVICE_ACCOUNT_JSON` | JSON service account Firebase untuk push native Android |
 | `SENDER_EMAIL` | Alamat pengirim awal, harus pada domain yang terverifikasi |
 | `SENDER_NAME` | Nama pengirim awal |
 | `REPLY_TO` | Reply-to awal, opsional |
@@ -42,19 +43,18 @@ Domain dan statusnya disimpan di Resend. Jika `DATABASE_URL` tersedia, webhook m
 
 ## Push Android tanpa VPS
 
-Zenos Mail dapat mengirim push melalui [ntfy](https://github.com/binwiederhier/ntfy) saat webhook Resend menerima `email.received`. Ini tidak memakai kuota email keluar Resend.
+Client Flutter memakai Firebase Cloud Messaging. Setelah login, token perangkat didaftarkan ke API dan disimpan di Neon. Webhook Resend mengarsipkan email, lalu mengirim notifikasi native yang memuat subjek dan alamat penerima. Saat notifikasi diketuk, aplikasi membuka email terkait. Alur ini berjalan di Vercel dan tidak memakai kuota email keluar Resend.
 
-1. Buat topik acak yang panjang, misalnya `node -e "console.log(require('node:crypto').randomBytes(24).toString('hex'))"`, lalu simpan sebagai `NTFY_TOPIC` di environment Production Vercel.
-2. Deploy ulang. Di Android, pasang aplikasi [ntfy](https://play.google.com/store/apps/details?id=io.heckel.ntfy), izinkan notifikasi, lalu buka **Settings → Push Android** di dashboard Zenos Mail. Salin topik atau buka tautan langganannya di ponsel.
-3. Tekan **Kirim Tes Push** dan pastikan notifikasinya muncul. Atur channel prioritas tinggi di pengaturan notifikasi Android bila ingin pop-up atau suara yang lebih jelas.
+Konfigurasi Firebase Android berada di `mobile/android/app/google-services.json`. Kredensial server harus disimpan sebagai secret `FIREBASE_SERVICE_ACCOUNT_JSON` di Vercel dan tidak boleh masuk Git. Token perangkat lama yang ditolak Firebase dibersihkan otomatis.
 
-Topik gratis ntfy.sh dapat dibaca atau ditulisi siapa pun yang mengetahui namanya. Karena itu, gunakan nama acak yang sulit ditebak dan jangan bagikan. Payload push hanya berisi pemberitahuan umum dan tautan dashboard; nama pengirim, subjek, dan isi email tidak dikirim ke ntfy. Kuota gratis ntfy.sh saat ini 250 pesan per hari, terpisah dari kuota Resend.
+Integrasi ntfy dan Telegram tetap tersedia sebagai cadangan bila environment terkait masih diisi. Payload ntfy tetap generik dan tidak membawa data email.
 
 ## Verifikasi sebelum rilis
 
 ```bash
 npm run build
 npm audit
+npm run test:database
 ```
 
 Uji login, daftar domain, kirim email dari setiap domain terverifikasi, inbox, dan webhook di lingkungan yang terhubung ke akun Resend sebenarnya.

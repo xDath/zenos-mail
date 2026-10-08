@@ -7,3 +7,10 @@ node_modules
 !.env.example
 .playwright-cli/
 .superdesign/tmp/
+.agents/
+skills-lock.json
+.firebase-service-account.tmp.json
+.firebase-old-key-id.tmp
+mobile/design/push-*.png
+mobile/design/play-services-*.png
+mobile/android/key.properties

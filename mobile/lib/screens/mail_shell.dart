@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../models/mail_message.dart';
 import '../services/zenos_api.dart';
+import '../services/push_service.dart';
 import '../theme/zenos_theme.dart';
 
 class MailShell extends StatefulWidget {
@@ -24,6 +25,46 @@ class MailShell extends StatefulWidget {
 
 class _MailShellState extends State<MailShell> {
   int _selectedIndex = 0;
+  StreamSubscription<String>? _pushSubscription;
+  bool _openingPush = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _pushSubscription = PushService.instance.openedMessages.listen(
+      _openPushMessage,
+    );
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final id = PushService.instance.takePendingMessageId();
+      if (id != null) _openPushMessage(id);
+    });
+  }
+
+  @override
+  void dispose() {
+    _pushSubscription?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _openPushMessage(String id) async {
+    if (_openingPush || widget.api == null || id.isEmpty) return;
+    _openingPush = true;
+    try {
+      final message = await widget.api!.message(id);
+      if (!mounted) return;
+      setState(() => _selectedIndex = 0);
+      await Navigator.of(context).push(
+        _PortalRoute(
+          builder: (_) =>
+              MessageDetailScreen(message: message, api: widget.api),
+        ),
+      );
+    } catch (_) {
+      // Inbox remains usable if a stale notification references a removed email.
+    } finally {
+      _openingPush = false;
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -56,13 +97,14 @@ class InboxScreen extends StatefulWidget {
 }
 
 class _InboxScreenState extends State<InboxScreen> {
-  final _searchController = TextEditingController(text: 'Anda');
-  String _query = 'Anda';
+  final _searchController = TextEditingController();
+  String _query = '';
   String _domain = 'all';
   List<MailMessage> _messages = const [];
   bool _loading = true;
   String? _error;
   Timer? _searchTimer;
+  bool _newestFirst = true;
 
   @override
   void initState() {
@@ -116,7 +158,9 @@ class _InboxScreenState extends State<InboxScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final visibleMessages = _messages;
+    final visibleMessages = _newestFirst
+        ? _messages
+        : _messages.reversed.toList(growable: false);
     final unread = _messages.where((message) => message.isUnread).length;
 
     return SafeArea(
@@ -137,6 +181,7 @@ class _InboxScreenState extends State<InboxScreen> {
                   _searchController.clear();
                   _setQuery('');
                 },
+                onRefresh: _load,
               ),
             ),
             SliverToBoxAdapter(
@@ -166,9 +211,14 @@ class _InboxScreenState extends State<InboxScreen> {
                       style: Theme.of(context).textTheme.bodySmall,
                     ),
                     const SizedBox(width: 8),
-                    const _SquareAction(
-                      icon: Icons.swap_vert_rounded,
-                      semanticLabel: 'Urutkan email',
+                    _SquareAction(
+                      icon: _newestFirst
+                          ? Icons.south_rounded
+                          : Icons.north_rounded,
+                      semanticLabel: _newestFirst
+                          ? 'Tampilkan email terlama dahulu'
+                          : 'Tampilkan email terbaru dahulu',
+                      onTap: () => setState(() => _newestFirst = !_newestFirst),
                     ),
                   ],
                 ),
@@ -222,12 +272,14 @@ class _InboxHeader extends StatelessWidget {
     required this.controller,
     required this.onQueryChanged,
     required this.onClear,
+    required this.onRefresh,
   });
 
   final int unreadCount;
   final TextEditingController controller;
   final ValueChanged<String> onQueryChanged;
   final VoidCallback onClear;
+  final Future<void> Function({bool quiet}) onRefresh;
 
   @override
   Widget build(BuildContext context) {
@@ -271,9 +323,10 @@ class _InboxHeader extends StatelessWidget {
                 ),
               ),
               const Spacer(),
-              const _SquareAction(
+              _SquareAction(
                 icon: Icons.refresh_rounded,
                 semanticLabel: 'Segarkan kotak masuk',
+                onTap: () => onRefresh(),
               ),
             ],
           ),
@@ -648,16 +701,6 @@ class _MessageDetailScreenState extends State<MessageDetailScreen> {
                     semanticLabel: 'Kembali',
                     onTap: () => Navigator.of(context).pop(),
                   ),
-                  const Spacer(),
-                  const _SquareAction(
-                    icon: Icons.archive_outlined,
-                    semanticLabel: 'Arsipkan',
-                  ),
-                  const SizedBox(width: 10),
-                  const _SquareAction(
-                    icon: Icons.more_horiz_rounded,
-                    semanticLabel: 'Tindakan lainnya',
-                  ),
                 ],
               ),
             ),
@@ -689,7 +732,14 @@ class _MessageDetailScreenState extends State<MessageDetailScreen> {
                       ),
                     if (_message.hasAttachment) ...[
                       const SizedBox(height: 34),
-                      const _AttachmentTile(),
+                      for (final name
+                          in _message.attachmentNames.isEmpty
+                              ? const ['Lampiran email']
+                              : _message.attachmentNames)
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 10),
+                          child: _AttachmentTile(name: name),
+                        ),
                     ],
                   ],
                 ),
@@ -705,7 +755,7 @@ class _MessageDetailScreenState extends State<MessageDetailScreen> {
                 children: [
                   Expanded(
                     child: FilledButton.icon(
-                      onPressed: () {},
+                      onPressed: () => _openComposer(forward: false),
                       style: FilledButton.styleFrom(
                         backgroundColor: ZenosColors.ink,
                         foregroundColor: ZenosColors.ground,
@@ -719,15 +769,49 @@ class _MessageDetailScreenState extends State<MessageDetailScreen> {
                     ),
                   ),
                   const SizedBox(width: 12),
-                  const _SquareAction(
+                  _SquareAction(
                     icon: Icons.forward_rounded,
                     semanticLabel: 'Teruskan',
                     size: 52,
+                    onTap: () => _openComposer(forward: true),
                   ),
                 ],
               ),
             ),
           ],
+        ),
+      ),
+    );
+  }
+
+  void _openComposer({required bool forward}) {
+    final body = _message.body.isNotEmpty
+        ? _message.body
+        : _plainText(_message.html);
+    final prefix = forward ? 'Fwd: ' : 'Re: ';
+    final subject = _message.subject.startsWith(prefix)
+        ? _message.subject
+        : '$prefix${_message.subject}';
+    final quoted = forward
+        ? '\n\n--- Pesan diteruskan ---\nDari: ${_message.senderAddress}\nKepada: ${_message.recipients.join(', ')}\nSubjek: ${_message.subject}\n\n$body'
+        : '\n\n--- Pesan sebelumnya ---\n$body';
+    final initialFrom = _message.recipients.firstWhere(
+      (address) =>
+          address == 'hello@zenos.studio' || address == 'inbox@alte.codes',
+      orElse: () => 'hello@zenos.studio',
+    );
+    Navigator.of(context).push(
+      _PortalRoute(
+        builder: (_) => Scaffold(
+          body: ComposeScreen(
+            api: widget.api,
+            standalone: true,
+            title: forward ? 'Teruskan' : 'Balas',
+            initialFrom: initialFrom,
+            initialTo: forward ? '' : _message.senderAddress,
+            initialSubject: subject,
+            initialBody: quoted,
+          ),
         ),
       ),
     );
@@ -766,7 +850,9 @@ class _AddressBlock extends StatelessWidget {
 }
 
 class _AttachmentTile extends StatelessWidget {
-  const _AttachmentTile();
+  const _AttachmentTile({required this.name});
+
+  final String name;
 
   @override
   Widget build(BuildContext context) {
@@ -785,19 +871,15 @@ class _AttachmentTile extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  'referensi-visual.pdf',
-                  style: Theme.of(context).textTheme.labelLarge,
-                ),
+                Text(name, style: Theme.of(context).textTheme.labelLarge),
                 const SizedBox(height: 3),
                 Text(
-                  '2,4 MB · PDF',
+                  'Lampiran pada email ini',
                   style: Theme.of(context).textTheme.bodySmall,
                 ),
               ],
             ),
           ),
-          const Icon(Icons.download_rounded, color: ZenosColors.secondaryInk),
         ],
       ),
     );
@@ -805,20 +887,44 @@ class _AttachmentTile extends StatelessWidget {
 }
 
 class ComposeScreen extends StatefulWidget {
-  const ComposeScreen({super.key, this.api});
+  const ComposeScreen({
+    super.key,
+    this.api,
+    this.standalone = false,
+    this.title = 'Tulis email',
+    this.initialFrom = 'hello@zenos.studio',
+    this.initialTo = '',
+    this.initialSubject = '',
+    this.initialBody = '',
+  });
 
   final ZenosApi? api;
+  final bool standalone;
+  final String title;
+  final String initialFrom;
+  final String initialTo;
+  final String initialSubject;
+  final String initialBody;
 
   @override
   State<ComposeScreen> createState() => _ComposeScreenState();
 }
 
 class _ComposeScreenState extends State<ComposeScreen> {
-  String _from = 'hello@zenos.studio';
-  final _to = TextEditingController();
-  final _subject = TextEditingController();
-  final _body = TextEditingController();
+  late String _from;
+  late final TextEditingController _to;
+  late final TextEditingController _subject;
+  late final TextEditingController _body;
   bool _sending = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _from = widget.initialFrom;
+    _to = TextEditingController(text: widget.initialTo);
+    _subject = TextEditingController(text: widget.initialSubject);
+    _body = TextEditingController(text: widget.initialBody);
+  }
 
   @override
   void dispose() {
@@ -862,6 +968,7 @@ class _ComposeScreenState extends State<ComposeScreen> {
         ScaffoldMessenger.of(
           context,
         ).showSnackBar(const SnackBar(content: Text('Email terkirim.')));
+        if (widget.standalone) Navigator.of(context).pop();
       }
     } on ApiException catch (error) {
       if (mounted) {
@@ -880,7 +987,9 @@ class _ComposeScreenState extends State<ComposeScreen> {
       bottom: false,
       child: Column(
         children: [
-          const _SectionHeader(index: '02', title: 'Tulis email'),
+          widget.standalone
+              ? _StandaloneComposeHeader(title: widget.title)
+              : const _SectionHeader(index: '02', title: 'Tulis email'),
           Expanded(
             child: SingleChildScrollView(
               padding: const EdgeInsets.fromLTRB(20, 26, 20, 36),
@@ -930,11 +1039,6 @@ class _ComposeScreenState extends State<ComposeScreen> {
                   const SizedBox(height: 20),
                   Row(
                     children: [
-                      const _SquareAction(
-                        icon: Icons.attach_file_rounded,
-                        semanticLabel: 'Lampirkan berkas',
-                        size: 52,
-                      ),
                       const Spacer(),
                       FilledButton.icon(
                         onPressed: _sending ? null : _send,
@@ -1053,6 +1157,7 @@ class SettingsScreen extends StatelessWidget {
   final VoidCallback? onLogout;
 
   Future<void> _logout() async {
+    if (api != null) await PushService.instance.unregisterCurrentDevice(api!);
     await api?.logout();
     onLogout?.call();
   }
@@ -1083,8 +1188,8 @@ class SettingsScreen extends StatelessWidget {
                 const _SettingsLabel('NOTIFIKASI'),
                 const _SettingsRow(
                   title: 'Email baru',
-                  subtitle: 'Tampilkan push di Android',
-                  trailing: Switch(value: true, onChanged: null),
+                  subtitle: 'Push Android aktif',
+                  statusColor: ZenosColors.tealBright,
                 ),
                 const SizedBox(height: 30),
                 const _SettingsLabel('AKUN'),
@@ -1132,6 +1237,37 @@ class _SectionHeader extends StatelessWidget {
             style: Theme.of(
               context,
             ).textTheme.labelMedium?.copyWith(color: ZenosColors.amber),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _StandaloneComposeHeader extends StatelessWidget {
+  const _StandaloneComposeHeader({required this.title});
+
+  final String title;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(20, 14, 20, 20),
+      decoration: const BoxDecoration(
+        color: ZenosColors.secondaryGround,
+        border: Border(bottom: BorderSide(color: ZenosColors.hairline)),
+      ),
+      child: Row(
+        children: [
+          _SquareAction(
+            icon: Icons.arrow_back_rounded,
+            semanticLabel: 'Kembali',
+            onTap: () => Navigator.of(context).pop(),
+          ),
+          const SizedBox(width: 18),
+          Expanded(
+            child: Text(title, style: Theme.of(context).textTheme.titleLarge),
           ),
         ],
       ),

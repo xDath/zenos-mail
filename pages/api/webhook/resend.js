@@ -2,6 +2,7 @@ import { Resend } from 'resend'
 import { sendNtfy } from '../../../lib/ntfy.js'
 import { archiveMessage, databaseConfigured } from '../../../lib/mail-store.js'
 import { resend } from '../../../lib/resend.js'
+import { sendAndroidPush } from '../../../lib/push.js'
 
 export const config = { api: { bodyParser: false } }
 
@@ -74,17 +75,24 @@ export default async function handler(req, res) {
 
     const telegramMsg = `📨 ${type}\n\nFrom: ${from}\nTo: ${toStr}\nSubject: ${subject}`
 
+    let archivedMessage = { ...event.data, id: event?.data?.email_id }
     if (databaseConfigured()) {
       const emailId = event?.data?.email_id
       const detail = emailId ? await resend(`/emails/receiving/${emailId}`) : null
-      const message = detail?.ok
+      archivedMessage = detail?.ok
         ? { ...event.data, ...detail.data, id: emailId }
         : { ...event.data, id: emailId }
-      await archiveMessage(message, 'inbound')
+      await archiveMessage(archivedMessage, 'inbound')
     }
 
-    await sendNtfy()
-    await sendTelegram(telegramMsg)
+    const notifications = await Promise.allSettled([
+      sendAndroidPush(archivedMessage),
+      sendNtfy(),
+      sendTelegram(telegramMsg),
+    ])
+    notifications.forEach(result => {
+      if (result.status === 'rejected') console.error('Notification failed:', result.reason)
+    })
 
     return res.status(200).json({ ok: true })
   } catch (err) {
