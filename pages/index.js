@@ -1,6 +1,8 @@
 import { useState, useEffect, useRef } from 'react'
 import Layout from '../components/Layout'
+import SettingsPanel from '../components/SettingsPanel'
 import Head from 'next/head'
+import { sendingReady } from '../lib/resend'
 
 export default function Dashboard() {
   return (
@@ -28,6 +30,9 @@ export default function Dashboard() {
 
 /* ── SEND PANEL ──────────────────────────────────────────── */
 function SendPanel({ showToast }) {
+  const [domains, setDomains] = useState([])
+  const [fromEmail, setFromEmail] = useState('')
+  const [domainError, setDomainError] = useState('')
   const [to, setTo] = useState('')
   const [cc, setCc] = useState('')
   const [bcc, setBcc] = useState('')
@@ -38,6 +43,24 @@ function SendPanel({ showToast }) {
   const [sending, setSending] = useState(false)
   const [attachments, setAttachments] = useState([])
   const fileRef = useRef(null)
+
+  useEffect(() => {
+    const saved = localStorage.getItem('zenos_sender_email')
+    Promise.all([fetch('/api/config').then(r => r.json()), fetch('/api/domains').then(r => r.json())])
+      .then(async ([config, result]) => {
+        if (!result.success) throw new Error(result.error || 'Gagal memuat domain')
+        const resolved = await Promise.all((result.data?.data || []).map(async domain => {
+          if (domain.status !== 'partially_verified') return domain
+          const detail = await fetch(`/api/domains/${domain.id}`).then(r => r.json())
+          return detail.success ? detail.data : domain
+        }))
+        const verified = resolved.filter(sendingReady)
+        setDomains(verified)
+        const preferred = saved && verified.some(d => saved.toLowerCase().endsWith(`@${d.name.toLowerCase()}`)) ? saved : config.senderEmail
+        setFromEmail(preferred || (verified[0] ? `hello@${verified[0].name}` : ''))
+      })
+      .catch(err => setDomainError(err.message))
+  }, [])
 
   function handleFiles(e) {
     const files = Array.from(e.target.files || [])
@@ -70,6 +93,9 @@ function SendPanel({ showToast }) {
     if (!subject.trim()) { showToast({ type: 'error', message: 'Subject required' }); return }
     if (!body.trim()) { showToast({ type: 'error', message: 'Body required' }); return }
 
+    if (!domains.some(d => fromEmail.toLowerCase().endsWith(`@${d.name.toLowerCase()}`))) {
+      showToast({ type: 'error', message: 'Pilih domain pengirim yang sudah terverifikasi.' }); return
+    }
     const identity = JSON.parse(localStorage.getItem('zenos_sender_identity') || '{}')
 
     setSending(true)
@@ -82,7 +108,7 @@ function SendPanel({ showToast }) {
       const bccList = bcc.split(/[,;]\s*/).filter(Boolean)
       if (bccList.length) payload.bcc = bccList
       if (attachments.length) payload.attachments = attachments.map(a => ({ filename: a.filename, content: a.content }))
-      if (identity.senderEmail) payload.sender_email = identity.senderEmail
+      payload.sender_email = fromEmail.trim()
       if (identity.senderName) payload.sender_name = identity.senderName
       if (identity.replyTo) payload.reply_to = identity.replyTo
 
@@ -93,9 +119,10 @@ function SendPanel({ showToast }) {
       })
       const data = await res.json()
       if (data.success) {
+        localStorage.setItem('zenos_sender_email', fromEmail.trim())
         showToast({ type: 'success', message: `Sent — ID: ${data.id}` })
         const h = JSON.parse(localStorage.getItem('zenos_history') || '[]')
-        h.unshift({ id: data.id, to: toList.join(', '), cc: ccList.join(', '), bcc: bccList.join(', '), subject: payload.subject, body, htmlMode, attachments: attachments.map(a => a.filename), time: new Date().toISOString() })
+        h.unshift({ id: data.id, from: fromEmail.trim(), to: toList.join(', '), cc: ccList.join(', '), bcc: bccList.join(', '), subject: payload.subject, body, htmlMode, attachments: attachments.map(a => a.filename), time: new Date().toISOString() })
         if (h.length > 100) h.length = 100
         localStorage.setItem('zenos_history', JSON.stringify(h))
         setTo(''); setCc(''); setBcc(''); setSubject(''); setBody(''); setAttachments([])
@@ -111,9 +138,15 @@ function SendPanel({ showToast }) {
   return (
     <div className="panel active">
       <form className="form" onSubmit={handleSend}>
+        <div className="section-intro"><span className="eyebrow">COMPOSE / 01</span><h1>Tulis email.</h1><p>Pilih domain pengirim, lalu kirim dari alamat yang kamu butuhkan.</p></div>
+        {domainError && <p className="inline-error">{domainError}</p>}
+        <div className="form__row">
+          <div className="form__group"><label className="form__label" htmlFor="sender-local">From · alamat</label><input id="sender-local" className="form__input" value={fromEmail.split('@')[0] || ''} onChange={e => setFromEmail(`${e.target.value}@${fromEmail.split('@')[1] || domains[0]?.name || ''}`)} placeholder="hello" required /></div>
+          <div className="form__group"><label className="form__label" htmlFor="sender-domain">Domain</label><select id="sender-domain" className="form__input" value={fromEmail.split('@')[1] || ''} onChange={e => setFromEmail(`${fromEmail.split('@')[0] || 'hello'}@${e.target.value}`)} required><option value="">Pilih domain</option>{domains.map(d => <option key={d.id} value={d.name}>@{d.name}</option>)}</select></div>
+        </div>
         <div className="form__group">
           <label className="form__label">To</label>
-          <input className="form__input" value={to} onChange={e => setTo(e.target.value)} placeholder="email@example.com" />
+            <input className="form__input" value={to} onChange={e => setTo(e.target.value)} placeholder="email@example.com" required />
         </div>
 
         <div style={{ display: showCcBcc ? 'block' : 'none' }}>
@@ -180,7 +213,10 @@ function SendPanel({ showToast }) {
 function HistoryPanel() {
   const [view, setView] = useState('list')
   const [detail, setDetail] = useState(null)
-  const history = JSON.parse(typeof window !== 'undefined' ? localStorage.getItem('zenos_history') || '[]' : '[]')
+  const [history, setHistory] = useState([])
+  useEffect(() => {
+    try { setHistory(JSON.parse(localStorage.getItem('zenos_history') || '[]')) } catch { setHistory([]) }
+  }, [])
 
   function formatTime(iso) {
     return new Date(iso).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
@@ -195,6 +231,7 @@ function HistoryPanel() {
             <h1 className="detail__subject">{detail.subject}</h1>
             <div className="detail__fields">
               <div className="detail__field"><span>To:</span> {detail.to}</div>
+              {detail.from && <div className="detail__field"><span>From:</span> {detail.from}</div>}
               {detail.cc && <div className="detail__field"><span>CC:</span> {detail.cc}</div>}
               {detail.bcc && <div className="detail__field"><span>BCC:</span> {detail.bcc}</div>}
               {detail.attachments?.length > 0 && <div className="detail__field"><span>Attachments:</span> {detail.attachments.join(', ')}</div>}
@@ -205,7 +242,7 @@ function HistoryPanel() {
           {detail.body && (
             <div className="detail__body">
               {detail.htmlMode
-                ? <div dangerouslySetInnerHTML={{ __html: detail.body }} />
+                ? <iframe className="email-frame" title="Sent email content" sandbox="" referrerPolicy="no-referrer" srcDoc={detail.body} />
                 : <pre style={{ fontFamily: 'var(--font-mono)', fontSize: 13, lineHeight: 1.6, whiteSpace: 'pre-wrap', color: 'var(--text)' }}>{detail.body}</pre>
               }
             </div>
@@ -223,7 +260,7 @@ function HistoryPanel() {
           <div className="list__empty">NO EMAILS SENT YET</div>
         ) : (
           history.map((entry, idx) => (
-            <div key={idx} className="item" onClick={() => { setDetail(entry); setView('detail') }}>
+            <button type="button" key={idx} className="item" onClick={() => { setDetail(entry); setView('detail') }}>
               <span className="item__index">{String(idx + 1).padStart(3, '0')}</span>
               <div className="item__content">
                 <div className="item__subject">{entry.subject}</div>
@@ -233,7 +270,7 @@ function HistoryPanel() {
                 </div>
               </div>
               <span className="item__arrow">→</span>
-            </div>
+            </button>
           ))
         )}
       </div>
@@ -248,6 +285,7 @@ function InboxPanel({ showToast }) {
   const [detail, setDetail] = useState(null)
   const [loading, setLoading] = useState(false)
   const [loaded, setLoaded] = useState(false)
+  const [filter, setFilter] = useState('all')
 
   async function loadInbox(silent = false) {
     setLoading(true)
@@ -283,6 +321,9 @@ function InboxPanel({ showToast }) {
     return <InboxDetailView detail={detail} onBack={() => setView('list')} />
   }
 
+  const recipientDomains = [...new Set(emails.flatMap(email => (Array.isArray(email.to) ? email.to : [email.to]).filter(Boolean).map(address => address.split('@')[1]?.toLowerCase())).filter(Boolean))]
+  const visibleEmails = filter === 'all' ? emails : emails.filter(email => (Array.isArray(email.to) ? email.to : [email.to]).some(address => address?.toLowerCase().endsWith(`@${filter}`)))
+
   return (
     <div className="panel active">
       {!loaded ? (
@@ -292,108 +333,32 @@ function InboxPanel({ showToast }) {
       ) : (
         <div className="list">
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-            <div className="list__count">{emails.length} RECEIVED</div>
+            <div className="list__count">{visibleEmails.length} RECEIVED</div>
             <button className="btn btn--small btn--ghost" onClick={() => loadInbox()} disabled={loading}>
               {loading ? '...' : 'REFRESH'}
             </button>
           </div>
-          {!emails.length ? (
+          <div className="filter-bar"><label className="form__label" htmlFor="inbox-domain">DOMAIN</label><select id="inbox-domain" className="form__input" value={filter} onChange={e => setFilter(e.target.value)}><option value="all">Semua domain</option>{recipientDomains.map(domain => <option key={domain} value={domain}>@{domain}</option>)}</select></div>
+          {!visibleEmails.length ? (
             <div className="list__empty">NO EMAILS YET</div>
           ) : (
-            emails.map((email, idx) => (
-              <div key={email.id || idx} className="item" onClick={() => { setDetail(email); setView('detail') }}>
+            visibleEmails.map((email, idx) => (
+              <button type="button" key={email.id || idx} className="item" onClick={() => { setDetail(email); setView('detail') }}>
                 <span className="item__index">{String(idx + 1).padStart(3, '0')}</span>
                 <div className="item__content">
                   <div className="item__subject">{email.subject || '(no subject)'}</div>
                   <div className="item__meta">
                     <span>← {email.from || '—'}</span>
+                    <span>→ {Array.isArray(email.to) ? email.to.join(', ') : email.to || '—'}</span>
                     <span>{email.created_at ? formatTime(email.created_at) : '—'}</span>
                   </div>
                 </div>
                 <span className="item__arrow">→</span>
-              </div>
+              </button>
             ))
           )}
         </div>
       )}
-    </div>
-  )
-}
-
-/* ── SETTINGS PANEL ─────────────────────────────────────── */
-function SettingsPanel({ showToast }) {
-  const [identity, setIdentity] = useState({})
-  const [env, setEnv] = useState({})
-  const [saving, setSaving] = useState(false)
-
-  useEffect(() => {
-    const saved = JSON.parse(localStorage.getItem('zenos_sender_identity') || '{}')
-    setIdentity(saved)
-    // Load current env config from server
-    fetch('/api/config').then(r => r.json()).then(d => {
-      if (d.success) setEnv(d.data)
-    }).catch(() => {})
-  }, [])
-
-  function updateField(field, value) {
-    setIdentity(prev => ({ ...prev, [field]: value }))
-  }
-
-  function handleSave(e) {
-    e.preventDefault()
-    setSaving(true)
-    localStorage.setItem('zenos_sender_identity', JSON.stringify(identity))
-    showToast({ type: 'success', message: 'Sender identity saved' })
-    setSaving(false)
-  }
-
-  return (
-    <div className="panel active" style={{ maxWidth: 600, margin: '0 auto' }}>
-      <form className="form" onSubmit={handleSave}>
-        <h2 style={{ fontFamily: 'var(--font-heading)', fontWeight: 900, fontSize: 16, letterSpacing: '0.15em', marginBottom: 20, textTransform: 'uppercase', paddingBottom: 8, borderBottom: '1px solid var(--border)' }}>Sender Identity</h2>
-        <p style={{ color: 'var(--muted)', fontFamily: 'var(--font-mono)', fontSize: 11, marginBottom: 20, lineHeight: 1.6 }}>
-          Override your sender email, name, and reply-to address. Leave blank to use the server defaults.
-        </p>
-
-        <div className="form__group">
-          <label className="form__label">Sender Email</label>
-          <input className="form__input" value={identity.senderEmail || ''} onChange={e => updateField('senderEmail', e.target.value)} placeholder={env.sender_email || 'dwiatma@zenos.studio'} />
-        </div>
-        <div className="form__group">
-          <label className="form__label">Sender Name</label>
-          <input className="form__input" value={identity.senderName || ''} onChange={e => updateField('senderName', e.target.value)} placeholder={env.sender_name || 'Dwiatma Tabah Kurniadi'} />
-        </div>
-        <div className="form__group">
-          <label className="form__label">Reply-To</label>
-          <input className="form__input" value={identity.replyTo || ''} onChange={e => updateField('replyTo', e.target.value)} placeholder={env.reply_to || 'dwiatma@zenos.studio'} />
-        </div>
-        <div className="form__group">
-          <label className="form__label">Notification Email</label>
-          <input className="form__input" value={identity.notifyEmail || ''} onChange={e => updateField('notifyEmail', e.target.value)} placeholder={env.notify_email || 'konodath@gmail.com'} />
-        </div>
-
-        <button type="submit" className="btn btn--primary" disabled={saving} style={{ marginTop: 16 }}>
-          {saving ? <span className="spinner" /> : 'SAVE IDENTITY'}
-        </button>
-      </form>
-
-      <div style={{ marginTop: 32, paddingTop: 20, borderTop: '1px solid var(--border)' }}>
-        <h2 style={{ fontFamily: 'var(--font-heading)', fontWeight: 900, fontSize: 16, letterSpacing: '0.15em', marginBottom: 12, textTransform: 'uppercase', color: '#E53935' }}>⚠ Domain Verification</h2>
-        <p style={{ color: 'var(--muted)', fontFamily: 'var(--font-mono)', fontSize: 11, lineHeight: 1.8 }}>
-          To send from <strong>@zenos.studio</strong>, Resend requires domain verification. No VPS needed — just DNS records.
-        </p>
-        <ol style={{ color: 'var(--text)', fontSize: 12, lineHeight: 2, paddingLeft: 18, fontFamily: 'var(--font-mono)', marginTop: 8 }}>
-          <li>Go to <a href="https://resend.com/domains" target="_blank" rel="noopener" style={{ color: 'var(--blue)' }}>resend.com/domains</a></li>
-          <li>Click <strong>Add Domain</strong> → enter <code style={{ background: 'var(--bg-secondary)', padding: '1px 4px', fontSize: 10 }}>zenos.studio</code></li>
-          <li>Resend gives you 3 DNS records (DKIM + SPF + MX)</li>
-          <li>Go to Cloudflare → zenos.studio → DNS → Records</li>
-          <li>Add each record exactly as shown</li>
-          <li>Wait ~5 min → click <strong>Verify</strong> in Resend</li>
-        </ol>
-        <p style={{ color: 'var(--muted)', fontFamily: 'var(--font-mono)', fontSize: 10, marginTop: 12 }}>
-          Once verified, you can send from <code style={{ background: 'var(--bg-secondary)', padding: '1px 4px', fontSize: 9 }}>dwiatma@zenos.studio</code> or any address @zenos.studio.
-        </p>
-      </div>
     </div>
   )
 }
@@ -436,7 +401,7 @@ function InboxDetailView({ detail, onBack }) {
         <div className="detail__body">
           {loading
             ? <span style={{ color: 'var(--muted)', fontFamily: 'var(--font-mono)', fontSize: 11 }}>LOADING…</span>
-            : <div dangerouslySetInnerHTML={{ __html: email.html || email.text || email.body || '(no content)' }} />
+            : email.html ? <iframe className="email-frame" title="Received email content" sandbox="" referrerPolicy="no-referrer" srcDoc={email.html} /> : <pre className="email-text">{email.text || email.body || '(no content)'}</pre>
           }
         </div>
       </div>

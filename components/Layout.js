@@ -21,7 +21,7 @@ export default function DashboardLayout({ children, tabs }) {
       .then(data => {
         if (data.apiKeySet) {
           setStatus('active')
-          setSenderEmail(data.senderEmail)
+          setSenderEmail(data.senderEmail || 'RESEND CONFIGURED')
         } else {
           setStatus('error')
         }

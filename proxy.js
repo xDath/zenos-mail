@@ -3,7 +3,7 @@ import { validateSession } from './lib/session'
 
 const SESSION_COOKIE = 'zenos_session'
 
-export async function middleware(req) {
+export async function proxy(req) {
   const { pathname } = req.nextUrl
 
   // Public routes

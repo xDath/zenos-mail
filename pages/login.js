@@ -21,7 +21,8 @@ export default function Login() {
       })
       const data = await res.json()
       if (data.success) {
-        const redirect = router.query.redirect || '/'
+        const requested = router.query.redirect
+        const redirect = typeof requested === 'string' && requested.startsWith('/') && !requested.startsWith('//') ? requested : '/'
         router.push(redirect)
       } else {
         setError(data.error || 'Invalid password')
@@ -43,6 +44,7 @@ export default function Login() {
             <input
               className="login__input"
               type="password"
+              autoComplete="current-password"
               value={password}
               onChange={e => setPassword(e.target.value)}
               placeholder="········"
