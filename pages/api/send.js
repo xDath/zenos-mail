@@ -1,4 +1,5 @@
 import { resend, sendingReady, validEmail } from '../../lib/resend'
+import { archiveMessage, databaseConfigured } from '../../lib/mail-store'
 
 export const config = { api: { bodyParser: { sizeLimit: '10mb' } } }
 
@@ -42,6 +43,24 @@ export default async function handler(req, res) {
     ...(attachments.length ? { attachments } : {}),
   }
   const result = await resend('/emails', { method: 'POST', body: JSON.stringify(payload) })
+  if (result.ok && databaseConfigured()) {
+    try {
+      await archiveMessage({
+        id: result.data.id,
+        from: payload.from,
+        to,
+        cc,
+        bcc,
+        subject: payload.subject,
+        text: text || '',
+        html: html || '',
+        attachments: attachments.map(({ filename }) => ({ filename })),
+        created_at: new Date().toISOString(),
+      }, 'outbound')
+    } catch (error) {
+      console.error('Sent email archive error:', error)
+    }
+  }
   return res.status(result.status).json(result.ok
     ? { success: true, id: result.data.id }
     : { success: false, error: result.error })

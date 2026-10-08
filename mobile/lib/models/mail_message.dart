@@ -7,6 +7,7 @@ class MailMessage {
     required this.subject,
     required this.preview,
     required this.body,
+    this.html = '',
     required this.receivedAt,
     this.isUnread = false,
     this.hasAttachment = false,
@@ -19,9 +20,33 @@ class MailMessage {
   final String subject;
   final String preview;
   final String body;
+  final String html;
   final DateTime receivedAt;
   final bool isUnread;
   final bool hasAttachment;
+
+  factory MailMessage.fromJson(Map<String, dynamic> json) {
+    final from = (json['from'] ?? '').toString();
+    final parsedSender = _parseSender(from);
+    final text = (json['text'] ?? json['body'] ?? '').toString();
+    final preview = (json['preview'] ?? '').toString();
+    final attachments = json['attachments'];
+    return MailMessage(
+      id: (json['id'] ?? '').toString(),
+      senderName: parsedSender.$1,
+      senderAddress: parsedSender.$2,
+      recipients: _stringList(json['to']),
+      subject: (json['subject'] ?? '(tanpa subjek)').toString(),
+      preview: preview.isNotEmpty ? preview : _makePreview(text),
+      body: text,
+      html: (json['html'] ?? '').toString(),
+      receivedAt:
+          DateTime.tryParse((json['created_at'] ?? '').toString())?.toLocal() ??
+          DateTime.now(),
+      isUnread: json['is_read'] != true,
+      hasAttachment: attachments is List && attachments.isNotEmpty,
+    );
+  }
 
   bool matches(String rawQuery) {
     final query = rawQuery.trim().toLowerCase();
@@ -42,6 +67,28 @@ class MailMessage {
       (address) => address.toLowerCase().endsWith('@${domain.toLowerCase()}'),
     );
   }
+}
+
+List<String> _stringList(dynamic value) {
+  if (value is List) return value.map((item) => item.toString()).toList();
+  if (value is String && value.isNotEmpty) return [value];
+  return const [];
+}
+
+(String, String) _parseSender(String value) {
+  final match = RegExp(r'^\s*(.*?)\s*<([^>]+)>\s*$').firstMatch(value);
+  if (match != null) {
+    final address = match.group(2) ?? value;
+    final name = (match.group(1) ?? '').replaceAll('"', '').trim();
+    return (name.isEmpty ? address.split('@').first : name, address);
+  }
+  return (value.contains('@') ? value.split('@').first : value, value);
+}
+
+String _makePreview(String value) {
+  final normalized = value.replaceAll(RegExp(r'\s+'), ' ').trim();
+  if (normalized.length <= 180) return normalized;
+  return '${normalized.substring(0, 177)}…';
 }
 
 final demoInbox = <MailMessage>[

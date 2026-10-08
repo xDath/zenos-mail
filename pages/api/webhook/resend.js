@@ -1,5 +1,7 @@
 import { Resend } from 'resend'
 import { sendNtfy } from '../../../lib/ntfy.js'
+import { archiveMessage, databaseConfigured } from '../../../lib/mail-store.js'
+import { resend } from '../../../lib/resend.js'
 
 export const config = { api: { bodyParser: false } }
 
@@ -71,6 +73,15 @@ export default async function handler(req, res) {
     const toStr = Array.isArray(to) ? to.join(', ') : to
 
     const telegramMsg = `📨 ${type}\n\nFrom: ${from}\nTo: ${toStr}\nSubject: ${subject}`
+
+    if (databaseConfigured()) {
+      const emailId = event?.data?.email_id
+      const detail = emailId ? await resend(`/emails/receiving/${emailId}`) : null
+      const message = detail?.ok
+        ? { ...event.data, ...detail.data, id: emailId }
+        : { ...event.data, id: emailId }
+      await archiveMessage(message, 'inbound')
+    }
 
     await sendNtfy()
     await sendTelegram(telegramMsg)

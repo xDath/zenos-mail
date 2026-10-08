@@ -1,10 +1,22 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../models/mail_message.dart';
+import '../services/zenos_api.dart';
 import '../theme/zenos_theme.dart';
 
 class MailShell extends StatefulWidget {
-  const MailShell({super.key});
+  const MailShell({
+    super.key,
+    this.api,
+    this.onLogout,
+    this.useDemoData = false,
+  });
+
+  final ZenosApi? api;
+  final VoidCallback? onLogout;
+  final bool useDemoData;
 
   @override
   State<MailShell> createState() => _MailShellState();
@@ -18,11 +30,11 @@ class _MailShellState extends State<MailShell> {
     return Scaffold(
       body: IndexedStack(
         index: _selectedIndex,
-        children: const [
-          InboxScreen(),
-          SentScreen(),
-          ComposeScreen(),
-          SettingsScreen(),
+        children: [
+          InboxScreen(api: widget.api, useDemoData: widget.useDemoData),
+          SentScreen(api: widget.api, useDemoData: widget.useDemoData),
+          ComposeScreen(api: widget.api),
+          SettingsScreen(api: widget.api, onLogout: widget.onLogout),
         ],
       ),
       bottomNavigationBar: _NavigationDock(
@@ -34,7 +46,10 @@ class _MailShellState extends State<MailShell> {
 }
 
 class InboxScreen extends StatefulWidget {
-  const InboxScreen({super.key});
+  const InboxScreen({super.key, this.api, this.useDemoData = false});
+
+  final ZenosApi? api;
+  final bool useDemoData;
 
   @override
   State<InboxScreen> createState() => _InboxScreenState();
@@ -44,29 +59,72 @@ class _InboxScreenState extends State<InboxScreen> {
   final _searchController = TextEditingController(text: 'Anda');
   String _query = 'Anda';
   String _domain = 'all';
+  List<MailMessage> _messages = const [];
+  bool _loading = true;
+  String? _error;
+  Timer? _searchTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
 
   @override
   void dispose() {
+    _searchTimer?.cancel();
     _searchController.dispose();
     super.dispose();
   }
 
+  Future<void> _load({bool quiet = false}) async {
+    if (!quiet) {
+      setState(() {
+        _loading = true;
+        _error = null;
+      });
+    }
+    try {
+      final messages = widget.useDemoData || widget.api == null
+          ? demoInbox
+                .where(
+                  (message) =>
+                      message.belongsTo(_domain) && message.matches(_query),
+                )
+                .toList()
+          : await widget.api!.messages(query: _query, domain: _domain);
+      if (mounted) setState(() => _messages = messages);
+    } on ApiException catch (error) {
+      if (mounted) setState(() => _error = error.message);
+    } catch (_) {
+      if (mounted) setState(() => _error = 'Tidak dapat memuat email.');
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  void _setQuery(String value) {
+    setState(() => _query = value);
+    _searchTimer?.cancel();
+    _searchTimer = Timer(const Duration(milliseconds: 320), _load);
+  }
+
+  void _setDomain(String value) {
+    setState(() => _domain = value);
+    _load();
+  }
+
   @override
   Widget build(BuildContext context) {
-    final visibleMessages = demoInbox
-        .where(
-          (message) => message.belongsTo(_domain) && message.matches(_query),
-        )
-        .toList();
-    final unread = demoInbox.where((message) => message.isUnread).length;
+    final visibleMessages = _messages;
+    final unread = _messages.where((message) => message.isUnread).length;
 
     return SafeArea(
       bottom: false,
       child: RefreshIndicator(
         color: ZenosColors.amber,
         backgroundColor: ZenosColors.raised,
-        onRefresh: () async =>
-            Future<void>.delayed(const Duration(milliseconds: 450)),
+        onRefresh: () => _load(quiet: true),
         child: CustomScrollView(
           physics: const AlwaysScrollableScrollPhysics(),
           slivers: [
@@ -74,10 +132,10 @@ class _InboxScreenState extends State<InboxScreen> {
               child: _InboxHeader(
                 unreadCount: unread,
                 controller: _searchController,
-                onQueryChanged: (value) => setState(() => _query = value),
+                onQueryChanged: _setQuery,
                 onClear: () {
                   _searchController.clear();
-                  setState(() => _query = '');
+                  _setQuery('');
                 },
               ),
             ),
@@ -86,7 +144,7 @@ class _InboxScreenState extends State<InboxScreen> {
                 padding: const EdgeInsets.fromLTRB(20, 30, 20, 0),
                 child: _DomainSelector(
                   selected: _domain,
-                  onSelected: (domain) => setState(() => _domain = domain),
+                  onSelected: _setDomain,
                 ),
               ),
             ),
@@ -116,7 +174,17 @@ class _InboxScreenState extends State<InboxScreen> {
                 ),
               ),
             ),
-            if (visibleMessages.isEmpty)
+            if (_loading && visibleMessages.isEmpty)
+              const SliverFillRemaining(
+                hasScrollBody: false,
+                child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
+              )
+            else if (_error != null && visibleMessages.isEmpty)
+              SliverFillRemaining(
+                hasScrollBody: false,
+                child: _InboxError(message: _error!, onRetry: _load),
+              )
+            else if (visibleMessages.isEmpty)
               const SliverFillRemaining(
                 hasScrollBody: false,
                 child: _EmptyInbox(),
@@ -134,6 +202,7 @@ class _InboxScreenState extends State<InboxScreen> {
                       _PortalRoute(
                         builder: (_) => MessageDetailScreen(
                           message: visibleMessages[index],
+                          api: widget.api,
                         ),
                       ),
                     ),
@@ -530,10 +599,38 @@ class HighlightedText extends StatelessWidget {
   }
 }
 
-class MessageDetailScreen extends StatelessWidget {
-  const MessageDetailScreen({super.key, required this.message});
+class MessageDetailScreen extends StatefulWidget {
+  const MessageDetailScreen({super.key, required this.message, this.api});
 
   final MailMessage message;
+  final ZenosApi? api;
+
+  @override
+  State<MessageDetailScreen> createState() => _MessageDetailScreenState();
+}
+
+class _MessageDetailScreenState extends State<MessageDetailScreen> {
+  late MailMessage _message = widget.message;
+  bool _loading = false;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.api != null && widget.message.id.isNotEmpty) _load();
+  }
+
+  Future<void> _load() async {
+    setState(() => _loading = true);
+    try {
+      final message = await widget.api!.message(widget.message.id);
+      await widget.api!.markRead(widget.message.id);
+      if (mounted) setState(() => _message = message);
+    } catch (_) {
+      // The list payload remains readable when detail refresh fails.
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -573,19 +670,24 @@ class MessageDetailScreen extends StatelessWidget {
                     Container(width: 34, height: 2, color: ZenosColors.amber),
                     const SizedBox(height: 26),
                     Text(
-                      message.subject,
+                      _message.subject,
                       style: Theme.of(context).textTheme.displaySmall,
                     ),
                     const SizedBox(height: 32),
-                    _AddressBlock(message: message),
+                    _AddressBlock(message: _message),
                     const SizedBox(height: 30),
                     const Divider(),
                     const SizedBox(height: 30),
-                    Text(
-                      message.body,
-                      style: Theme.of(context).textTheme.bodyLarge,
-                    ),
-                    if (message.hasAttachment) ...[
+                    if (_loading && _message.body.isEmpty)
+                      const LinearProgressIndicator(minHeight: 2)
+                    else
+                      Text(
+                        _message.body.isNotEmpty
+                            ? _message.body
+                            : _plainText(_message.html),
+                        style: Theme.of(context).textTheme.bodyLarge,
+                      ),
+                    if (_message.hasAttachment) ...[
                       const SizedBox(height: 34),
                       const _AttachmentTile(),
                     ],
@@ -703,7 +805,9 @@ class _AttachmentTile extends StatelessWidget {
 }
 
 class ComposeScreen extends StatefulWidget {
-  const ComposeScreen({super.key});
+  const ComposeScreen({super.key, this.api});
+
+  final ZenosApi? api;
 
   @override
   State<ComposeScreen> createState() => _ComposeScreenState();
@@ -711,6 +815,64 @@ class ComposeScreen extends StatefulWidget {
 
 class _ComposeScreenState extends State<ComposeScreen> {
   String _from = 'hello@zenos.studio';
+  final _to = TextEditingController();
+  final _subject = TextEditingController();
+  final _body = TextEditingController();
+  bool _sending = false;
+
+  @override
+  void dispose() {
+    _to.dispose();
+    _subject.dispose();
+    _body.dispose();
+    super.dispose();
+  }
+
+  Future<void> _send() async {
+    final recipients = _to.text
+        .split(RegExp(r'[,;\s]+'))
+        .where((address) => address.trim().isNotEmpty)
+        .toList();
+    if (recipients.isEmpty ||
+        _subject.text.trim().isEmpty ||
+        _body.text.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Lengkapi penerima, subjek, dan pesan.')),
+      );
+      return;
+    }
+    if (widget.api == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Mode demo: email tidak dikirim.')),
+      );
+      return;
+    }
+    setState(() => _sending = true);
+    try {
+      await widget.api!.send(
+        from: _from,
+        to: recipients,
+        subject: _subject.text.trim(),
+        text: _body.text.trim(),
+      );
+      _to.clear();
+      _subject.clear();
+      _body.clear();
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('Email terkirim.')));
+      }
+    } on ApiException catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(error.message)));
+      }
+    } finally {
+      if (mounted) setState(() => _sending = false);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -745,19 +907,22 @@ class _ComposeScreenState extends State<ComposeScreen> {
                         setState(() => _from = value ?? _from),
                   ),
                   const SizedBox(height: 22),
-                  const TextField(
+                  TextField(
+                    controller: _to,
                     keyboardType: TextInputType.emailAddress,
-                    decoration: InputDecoration(labelText: 'Kepada'),
+                    decoration: const InputDecoration(labelText: 'Kepada'),
                   ),
                   const SizedBox(height: 16),
-                  const TextField(
-                    decoration: InputDecoration(labelText: 'Subjek'),
+                  TextField(
+                    controller: _subject,
+                    decoration: const InputDecoration(labelText: 'Subjek'),
                   ),
                   const SizedBox(height: 16),
-                  const TextField(
+                  TextField(
+                    controller: _body,
                     minLines: 10,
                     maxLines: 18,
-                    decoration: InputDecoration(
+                    decoration: const InputDecoration(
                       hintText: 'Tulis pesan…',
                       alignLabelWithHint: true,
                     ),
@@ -772,7 +937,7 @@ class _ComposeScreenState extends State<ComposeScreen> {
                       ),
                       const Spacer(),
                       FilledButton.icon(
-                        onPressed: () {},
+                        onPressed: _sending ? null : _send,
                         style: FilledButton.styleFrom(
                           backgroundColor: ZenosColors.amber,
                           foregroundColor: ZenosColors.ground,
@@ -781,8 +946,16 @@ class _ComposeScreenState extends State<ComposeScreen> {
                             borderRadius: BorderRadius.circular(15),
                           ),
                         ),
-                        icon: const Icon(Icons.arrow_upward_rounded, size: 19),
-                        label: const Text('Kirim'),
+                        icon: _sending
+                            ? const SizedBox(
+                                width: 18,
+                                height: 18,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
+                              )
+                            : const Icon(Icons.arrow_upward_rounded, size: 19),
+                        label: Text(_sending ? 'Mengirim' : 'Kirim'),
                       ),
                     ],
                   ),
@@ -796,40 +969,76 @@ class _ComposeScreenState extends State<ComposeScreen> {
   }
 }
 
-class SentScreen extends StatelessWidget {
-  const SentScreen({super.key});
+class SentScreen extends StatefulWidget {
+  const SentScreen({super.key, this.api, this.useDemoData = false});
+
+  final ZenosApi? api;
+  final bool useDemoData;
+
+  @override
+  State<SentScreen> createState() => _SentScreenState();
+}
+
+class _SentScreenState extends State<SentScreen> {
+  List<MailMessage> _messages = const [];
+  bool _loading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    try {
+      final messages = widget.useDemoData || widget.api == null
+          ? demoInbox.reversed.take(3).toList()
+          : await widget.api!.messages(direction: 'outbound');
+      if (mounted) setState(() => _messages = messages);
+    } catch (_) {
+      if (mounted) setState(() => _messages = const []);
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
-    final messages = demoInbox.reversed.take(3).toList();
     return SafeArea(
       bottom: false,
       child: Column(
         children: [
           const _SectionHeader(index: '01', title: 'Terkirim'),
           Expanded(
-            child: ListView.separated(
-              padding: const EdgeInsets.fromLTRB(20, 16, 20, 36),
-              itemCount: messages.length,
-              separatorBuilder: (_, _) => const Divider(height: 1),
-              itemBuilder: (context, index) => Padding(
-                padding: const EdgeInsets.symmetric(vertical: 22),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      messages[index].subject,
-                      style: Theme.of(context).textTheme.titleLarge,
+            child: _loading
+                ? const Center(child: CircularProgressIndicator(strokeWidth: 2))
+                : _messages.isEmpty
+                ? const _EmptyInbox()
+                : RefreshIndicator(
+                    onRefresh: _load,
+                    child: ListView.separated(
+                      padding: const EdgeInsets.fromLTRB(20, 16, 20, 36),
+                      itemCount: _messages.length,
+                      separatorBuilder: (_, _) => const Divider(height: 1),
+                      itemBuilder: (context, index) => Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 22),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              _messages[index].subject,
+                              style: Theme.of(context).textTheme.titleLarge,
+                            ),
+                            const SizedBox(height: 8),
+                            Text(
+                              'ke ${_messages[index].recipients.join(', ')}',
+                              style: Theme.of(context).textTheme.bodyMedium,
+                            ),
+                          ],
+                        ),
+                      ),
                     ),
-                    const SizedBox(height: 8),
-                    Text(
-                      'ke ${messages[index].recipients.first}',
-                      style: Theme.of(context).textTheme.bodyMedium,
-                    ),
-                  ],
-                ),
-              ),
-            ),
+                  ),
           ),
         ],
       ),
@@ -838,7 +1047,15 @@ class SentScreen extends StatelessWidget {
 }
 
 class SettingsScreen extends StatelessWidget {
-  const SettingsScreen({super.key});
+  const SettingsScreen({super.key, this.api, this.onLogout});
+
+  final ZenosApi? api;
+  final VoidCallback? onLogout;
+
+  Future<void> _logout() async {
+    await api?.logout();
+    onLogout?.call();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -850,31 +1067,32 @@ class SettingsScreen extends StatelessWidget {
           Expanded(
             child: ListView(
               padding: const EdgeInsets.fromLTRB(20, 22, 20, 36),
-              children: const [
-                _SettingsLabel('DOMAIN'),
-                _SettingsRow(
+              children: [
+                const _SettingsLabel('DOMAIN'),
+                const _SettingsRow(
                   title: 'zenos.studio',
                   subtitle: 'Kirim dan terima aktif',
                   statusColor: ZenosColors.tealBright,
                 ),
-                _SettingsRow(
+                const _SettingsRow(
                   title: 'alte.codes',
                   subtitle: 'Kirim dan terima aktif',
                   statusColor: ZenosColors.tealBright,
                 ),
-                SizedBox(height: 30),
-                _SettingsLabel('NOTIFIKASI'),
-                _SettingsRow(
+                const SizedBox(height: 30),
+                const _SettingsLabel('NOTIFIKASI'),
+                const _SettingsRow(
                   title: 'Email baru',
                   subtitle: 'Tampilkan push di Android',
                   trailing: Switch(value: true, onChanged: null),
                 ),
-                SizedBox(height: 30),
-                _SettingsLabel('AKUN'),
+                const SizedBox(height: 30),
+                const _SettingsLabel('AKUN'),
                 _SettingsRow(
                   title: 'Keluar dari perangkat ini',
                   subtitle: 'Sesi aplikasi akan dihapus',
-                  trailing: Icon(
+                  onTap: _logout,
+                  trailing: const Icon(
                     Icons.logout_rounded,
                     color: ZenosColors.secondaryInk,
                   ),
@@ -947,45 +1165,50 @@ class _SettingsRow extends StatelessWidget {
     required this.subtitle,
     this.statusColor,
     this.trailing,
+    this.onTap,
   });
 
   final String title;
   final String subtitle;
   final Color? statusColor;
   final Widget? trailing;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(vertical: 19),
-      decoration: const BoxDecoration(
-        border: Border(bottom: BorderSide(color: ZenosColors.hairline)),
-      ),
-      child: Row(
-        children: [
-          if (statusColor != null) ...[
-            Container(
-              width: 7,
-              height: 7,
-              decoration: BoxDecoration(
-                color: statusColor,
-                shape: BoxShape.circle,
+    return InkWell(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 19),
+        decoration: const BoxDecoration(
+          border: Border(bottom: BorderSide(color: ZenosColors.hairline)),
+        ),
+        child: Row(
+          children: [
+            if (statusColor != null) ...[
+              Container(
+                width: 7,
+                height: 7,
+                decoration: BoxDecoration(
+                  color: statusColor,
+                  shape: BoxShape.circle,
+                ),
+              ),
+              const SizedBox(width: 14),
+            ],
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(title, style: Theme.of(context).textTheme.titleMedium),
+                  const SizedBox(height: 5),
+                  Text(subtitle, style: Theme.of(context).textTheme.bodySmall),
+                ],
               ),
             ),
-            const SizedBox(width: 14),
+            if (trailing != null) trailing!,
           ],
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(title, style: Theme.of(context).textTheme.titleMedium),
-                const SizedBox(height: 5),
-                Text(subtitle, style: Theme.of(context).textTheme.bodySmall),
-              ],
-            ),
-          ),
-          if (trailing != null) trailing!,
-        ],
+        ),
       ),
     );
   }
@@ -1163,6 +1386,53 @@ class _EmptyInbox extends StatelessWidget {
       ),
     );
   }
+}
+
+class _InboxError extends StatelessWidget {
+  const _InboxError({required this.message, required this.onRetry});
+
+  final String message;
+  final Future<void> Function({bool quiet}) onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(36),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.cloud_off_outlined, color: ZenosColors.muted),
+            const SizedBox(height: 16),
+            Text(
+              message,
+              textAlign: TextAlign.center,
+              style: Theme.of(context).textTheme.bodyMedium,
+            ),
+            const SizedBox(height: 18),
+            TextButton(
+              onPressed: () => onRetry(),
+              child: const Text('Coba lagi'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+String _plainText(String html) {
+  return html
+      .replaceAll(RegExp(r'<style[\s\S]*?</style>', caseSensitive: false), ' ')
+      .replaceAll(
+        RegExp(r'<script[\s\S]*?</script>', caseSensitive: false),
+        ' ',
+      )
+      .replaceAll(RegExp(r'<[^>]+>'), ' ')
+      .replaceAll('&nbsp;', ' ')
+      .replaceAll('&amp;', '&')
+      .replaceAll(RegExp(r'\s+'), ' ')
+      .trim();
 }
 
 class _PortalRoute<T> extends PageRouteBuilder<T> {

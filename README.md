@@ -22,6 +22,7 @@ Isi `.env.local` dengan kredensial sendiri. Jangan commit file tersebut.
 | `DASHBOARD_PASSWORD` | Password dashboard yang kuat |
 | `JWT_SECRET` | String acak panjang untuk menandatangani sesi |
 | `RESEND_WEBHOOK_SECRET` | Signing secret webhook `email.received` dari Resend |
+| `DATABASE_URL` | URL Postgres/Neon untuk arsip email permanen dan pencarian isi |
 | `SENDER_EMAIL` | Alamat pengirim awal, harus pada domain yang terverifikasi |
 | `SENDER_NAME` | Nama pengirim awal |
 | `REPLY_TO` | Reply-to awal, opsional |
@@ -37,7 +38,7 @@ Set variabel yang sama di Vercel untuk Production. Jika `DASHBOARD_PASSWORD` ata
 3. Bila ingin menerima email di domain itu, klik **Enable Inbox**, pasang record MX penerimaan yang muncul, lalu pastikan webhook Resend aktif. Mengubah MX utama dapat memindahkan seluruh email masuk dari penyedia lama; cek pengaturan domain dahulu.
 4. Buka **Send**, pilih domain terverifikasi dan ketik nama alamat sebelum `@`. Alamat terakhir disimpan di browser sebagai pilihan awal.
 
-Domain dan statusnya disimpan di Resend. Nama pengirim, reply-to, dan riwayat kirim hanya tersimpan di browser yang dipakai. Inbox menampilkan email masuk dari Resend dan dapat difilter menurut domain penerima.
+Domain dan statusnya disimpan di Resend. Jika `DATABASE_URL` tersedia, webhook mengarsipkan email masuk dan email terkirim ke Postgres sehingga riwayat tidak mengikuti batas retensi Resend. Endpoint `POST /api/mail/sync` dapat dipakai sekali setelah database dibuat untuk mengarsipkan hingga 100 email masuk yang masih tersedia di Resend.
 
 ## Push Android tanpa VPS
 

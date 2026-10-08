@@ -8,7 +8,8 @@ Flutter client for the existing Zenos Mail backend. The current build establishe
 - Inbox search is case-insensitive across sender, recipient, subject, preview, and body.
 - Domain filtering supports `zenos.studio` and `alte.codes`.
 - Message detail, compose, sent, and settings flows are navigable.
-- The inbox currently uses local fixture data while authentication, persistence, and push delivery are connected to the Vercel backend.
+- Production mode authenticates against `https://zenos-mail.vercel.app`, stores its bearer token with Android secure storage, and reads/writes mail through the Vercel API.
+- Widget tests use local fixture data so UI and global search can be verified without production credentials.
 
 ## Run
 
@@ -16,6 +17,8 @@ Flutter client for the existing Zenos Mail backend. The current build establishe
 C:\src\flutter\bin\flutter.bat pub get
 C:\src\flutter\bin\flutter.bat run
 ```
+
+For a different backend, pass `--dart-define=ZENOS_API_URL=https://example.com`.
 
 ## Verify
 

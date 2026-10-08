@@ -13,7 +13,9 @@ export async function proxy(req) {
 
   // API routes protected
   if (pathname.startsWith('/api/') && pathname !== '/api/login') {
-    const sessionToken = req.cookies.get(SESSION_COOKIE)?.value
+    const authorization = req.headers.get('authorization') || ''
+    const bearer = authorization.startsWith('Bearer ') ? authorization.slice(7).trim() : ''
+    const sessionToken = bearer || req.cookies.get(SESSION_COOKIE)?.value
     if (!sessionToken || !(await validateSession(sessionToken))) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
