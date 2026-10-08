@@ -1,0 +1,47 @@
+{
+  "schemaVersion": 1,
+  "targets": {
+    "flutter:inbox": {
+      "targetKind": "new-ui",
+      "projectId": "1343fa8e-1518-48bd-8f10-5b985ef23a18",
+      "activeDraftId": "c9b86a0b-6efc-4c85-91c0-5ec6d599a215",
+      "designSystemPath": ".superdesign/design-system.md",
+      "referenceIds": [
+        "user-zenos-logo"
+      ],
+      "brandAssets": {
+        "logo": {
+          "assetKey": "user-zenos-logo",
+          "url": "https://vgbujcuwptvheqijyjbe.supabase.co/storage/v1/object/public/hmac-uploads/projects/1343fa8e-1518-48bd-8f10-5b985ef23a18/brand-assets/user-zenos-logo/codex-clipboard-9b1cd0f6-9f82-4520-98d3-ce07e3c6bef3.png"
+        }
+      },
+      "contextFiles": [
+        ".superdesign/design-system.md",
+        ".superdesign/init/theme.md",
+        ".superdesign/init/pages.md",
+        "pages/index.js",
+        "components/Layout.js",
+        "components/SettingsPanel.js",
+        "styles/global.css"
+      ],
+      "fingerprints": {
+        ".superdesign/design-system.md": "4a04338dcbfa10d7ea31511ef50d955fad32123cc5521345bb3d1797137db548",
+        ".superdesign/init/theme.md": "8d9880113e0d39f84094ee317520ba2c0838f4b33de805fc2216d9e6bf6488cc",
+        ".superdesign/init/pages.md": "601e899172146ffce662c8f07cd53105e0bd363f0582556efbd0a4c41c1257d8",
+        "pages/index.js": "ea2534d3c5762acef69e969ff48b31b822dba6337ea6d2551a1f420fa7c929e6",
+        "components/Layout.js": "a9957a8964f58d5a4720797c48314ceb9c4236e7960ac408c80530c974e81357",
+        "components/SettingsPanel.js": "0aa39aa63075fe426fad474a9b7f8754b253315b01e3b9ca8d04600d461ce99c",
+        "styles/global.css": "2047520edfe10de2d0bee875c91d92541634b95c0e7b2839d3aa1ab49923c65f"
+      },
+      "components": [],
+      "drafts": {
+        "c9b86a0b-6efc-4c85-91c0-5ec6d599a215": {
+          "title": "Zenos Mail — Kotak Masuk Terpadu",
+          "visualDirection": "cool branded mail client with calm typography and spacious structured rows",
+          "currentVersion": 4
+        }
+      },
+      "updatedAt": "2026-10-08T18:22:01+07:00"
+    }
+  }
+}

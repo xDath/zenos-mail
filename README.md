@@ -2,6 +2,10 @@
 
 Dashboard pribadi untuk mengirim dan menerima email dari beberapa domain melalui Resend. Daftar domain diambil langsung dari Resend, sehingga domain baru tidak perlu ditambahkan ke kode atau environment Vercel.
 
+## Aplikasi Android
+
+Client Flutter berada di [`mobile/`](mobile/). Interface awal mencakup inbox terpadu, pencarian satu kolom untuk seluruh isi email, filter domain, detail email, compose, sent, dan settings. Lihat [`mobile/README.md`](mobile/README.md) untuk cara menjalankan dan status integrasinya.
+
 ## Menjalankan lokal
 
 ```bash
