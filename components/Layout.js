@@ -16,6 +16,10 @@ export default function DashboardLayout({ children, tabs }) {
   const [toast, setToast] = useState(null)
 
   useEffect(() => {
+    if (router.isReady && router.query.tab === 'receive') setActiveTab('receive')
+  }, [router.isReady, router.query.tab])
+
+  useEffect(() => {
     fetch('/api/config')
       .then(r => r.json())
       .then(data => {

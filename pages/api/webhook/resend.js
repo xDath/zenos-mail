@@ -1,4 +1,5 @@
 import { Resend } from 'resend'
+import { sendNtfy } from '../../../lib/ntfy.js'
 
 export const config = { api: { bodyParser: false } }
 
@@ -31,7 +32,7 @@ function verifyWebhook(req, raw) {
 }
 
 // POST /api/webhook/resend
-// Receives Resend webhook events, forwards notification via Telegram only
+// Receives Resend webhook events and sends Android/Telegram notifications.
 // Only forwards email.received — skips domain.* and other noise
 // NOTE: NO email-to-self forwarding (caused infinite loop: notify → CF → Resend → webhook → ...)
 
@@ -47,9 +48,6 @@ async function sendTelegram(text) {
     })
   } catch {}
 }
-
-// Removed sendNotifyEmail — caused infinite forward loop (notify → CF forward → Resend → webhook → notify → ...)
-// Telegram notification is sufficient; no email-to-self forwarding.
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -74,6 +72,7 @@ export default async function handler(req, res) {
 
     const telegramMsg = `📨 ${type}\n\nFrom: ${from}\nTo: ${toStr}\nSubject: ${subject}`
 
+    await sendNtfy()
     await sendTelegram(telegramMsg)
 
     return res.status(200).json({ ok: true })

@@ -286,6 +286,8 @@ body { background: radial-gradient(circle at 80% -20%, #e1ede5, transparent 45%)
 .dns-row--head { font-family: var(--font-mono); background: #f0f4ee; color: var(--muted); font-size: 9px; letter-spacing: .09em; }
 .dns-row code { font-family: var(--font-mono); overflow-wrap: anywhere; white-space: normal; }
 .domain-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 18px; }
+.notification-topic { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.notification-topic code { overflow-wrap: anywhere; font-size: 12px; padding: 12px; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; }
 .inline-error { color: var(--red); background: #fff0ec; border: 1px solid #efc6bb; padding: 11px 13px; border-radius: 8px; font-size: 12px; margin: 12px 0; }
 .email-frame { display: block; width: 100%; min-height: 360px; border: 0; background: white; }
 .email-text { white-space: pre-wrap; overflow-wrap: anywhere; font: 13px/1.7 var(--font-mono); }

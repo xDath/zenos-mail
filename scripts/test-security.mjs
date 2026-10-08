@@ -21,6 +21,13 @@ assert.equal(sendingReady({
 const key = randomBytes(32)
 process.env.RESEND_WEBHOOK_SECRET = `whsec_${key.toString('base64')}`
 delete process.env.TELEGRAM_BOT_TOKEN
+process.env.NTFY_TOPIC = 'a'.repeat(48)
+const originalFetch = globalThis.fetch
+const pushes = []
+globalThis.fetch = async (url, options) => {
+  pushes.push({ url, payload: JSON.parse(options.body) })
+  return { ok: true, status: 200 }
+}
 
 async function request(signature) {
   const payload = JSON.stringify({ type: 'email.received', data: { from: 'sender@example.com', to: ['hello@alte.codes'], subject: 'Test' } })
@@ -40,5 +47,12 @@ async function request(signature) {
 }
 
 assert.equal((await request('valid')).statusCode, 200)
+assert.equal(pushes.length, 1)
+assert.equal(pushes[0].url, 'https://ntfy.sh/')
+assert.equal(pushes[0].payload.priority, 4)
+assert.equal(pushes[0].payload.topic, process.env.NTFY_TOPIC)
+assert.equal(JSON.stringify(pushes[0].payload).includes('sender@example.com'), false)
 assert.equal((await request('invalid')).statusCode, 401)
-console.log('Security checks passed: domain validation, partial verification, signed webhook')
+assert.equal(pushes.length, 1)
+globalThis.fetch = originalFetch
+console.log('Security checks passed: domain validation, partial verification, signed webhook, private push payload')
