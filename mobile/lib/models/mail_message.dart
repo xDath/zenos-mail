@@ -11,7 +11,7 @@ class MailMessage {
     required this.receivedAt,
     this.isUnread = false,
     this.hasAttachment = false,
-    this.attachmentNames = const [],
+    this.attachments = const [],
   });
 
   final String id;
@@ -25,14 +25,22 @@ class MailMessage {
   final DateTime receivedAt;
   final bool isUnread;
   final bool hasAttachment;
-  final List<String> attachmentNames;
+  final List<MailAttachment> attachments;
+
+  List<String> get attachmentNames => attachments
+      .map((attachment) => attachment.filename)
+      .where((name) => name.isNotEmpty)
+      .toList();
 
   factory MailMessage.fromJson(Map<String, dynamic> json) {
     final from = (json['from'] ?? '').toString();
     final parsedSender = _parseSender(from);
     final text = (json['text'] ?? json['body'] ?? '').toString();
     final preview = (json['preview'] ?? '').toString();
-    final attachments = json['attachments'];
+    final rawAttachments = json['attachments'];
+    final attachments = rawAttachments is List
+        ? rawAttachments.map(MailAttachment.fromJson).toList()
+        : const <MailAttachment>[];
     return MailMessage(
       id: (json['id'] ?? '').toString(),
       senderName: parsedSender.$1,
@@ -46,16 +54,8 @@ class MailMessage {
           DateTime.tryParse((json['created_at'] ?? '').toString())?.toLocal() ??
           DateTime.now(),
       isUnread: json['is_read'] != true,
-      hasAttachment: attachments is List && attachments.isNotEmpty,
-      attachmentNames: attachments is List
-          ? attachments.map((item) {
-              if (item is Map) {
-                return (item['filename'] ?? item['name'] ?? 'Lampiran')
-                    .toString();
-              }
-              return 'Lampiran';
-            }).toList()
-          : const [],
+      hasAttachment: attachments.isNotEmpty,
+      attachments: attachments,
     );
   }
 
@@ -76,6 +76,35 @@ class MailMessage {
     if (domain == 'all') return true;
     return recipients.any(
       (address) => address.toLowerCase().endsWith('@${domain.toLowerCase()}'),
+    );
+  }
+}
+
+class MailAttachment {
+  const MailAttachment({
+    required this.filename,
+    this.contentType = '',
+    this.contentId = '',
+    this.downloadUrl = '',
+    this.disposition = '',
+  });
+
+  final String filename;
+  final String contentType;
+  final String contentId;
+  final String downloadUrl;
+  final String disposition;
+
+  bool get isInline => disposition == 'inline' || contentId.isNotEmpty;
+
+  factory MailAttachment.fromJson(dynamic value) {
+    if (value is! Map) return const MailAttachment(filename: 'Lampiran');
+    return MailAttachment(
+      filename: (value['filename'] ?? value['name'] ?? 'Lampiran').toString(),
+      contentType: (value['content_type'] ?? '').toString(),
+      contentId: (value['content_id'] ?? '').toString(),
+      downloadUrl: (value['download_url'] ?? '').toString(),
+      disposition: (value['content_disposition'] ?? '').toString(),
     );
   }
 }

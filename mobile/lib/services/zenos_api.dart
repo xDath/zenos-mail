@@ -113,6 +113,7 @@ class ZenosApi {
 
   Future<String> send({
     required String from,
+    required String senderName,
     required List<String> to,
     required String subject,
     required String text,
@@ -122,7 +123,7 @@ class ZenosApi {
       '/api/send',
       body: {
         'sender_email': from,
-        'sender_name': 'Zenos Mail',
+        'sender_name': senderName,
         'to': to,
         'subject': subject,
         'text': text,

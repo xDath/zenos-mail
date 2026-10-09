@@ -1,6 +1,15 @@
 import { databaseConfigured, getMessage, markMessageRead } from '../../../lib/mail-store'
 import { resend } from '../../../lib/resend'
 
+async function addAttachmentDownloads(message, id) {
+  if (!Array.isArray(message?.attachments) || !message.attachments.length) return message
+  const result = await resend(`/emails/receiving/${id}/attachments?limit=100`)
+  if (!result.ok) return message
+  const attachments = result.data?.data || result.data
+  if (!Array.isArray(attachments)) return message
+  return { ...message, attachments }
+}
+
 export default async function handler(req, res) {
   const { id } = req.query
   if (typeof id !== 'string' || !/^[0-9a-z-]{6,128}$/i.test(id)) {
@@ -17,12 +26,19 @@ export default async function handler(req, res) {
 
     if (databaseConfigured()) {
       const message = await getMessage(id)
-      if (message) return res.status(200).json({ success: true, data: message, source: 'archive' })
+      if (message) {
+        const data = message.direction === 'inbound'
+          ? await addAttachmentDownloads(message, id)
+          : message
+        return res.status(200).json({ success: true, data, source: 'archive' })
+      }
     }
     const result = await resend(`/emails/receiving/${id}`)
-    return res.status(result.status).json(result.ok
-      ? { success: true, data: result.data, source: 'resend' }
-      : { success: false, error: result.error })
+    if (!result.ok) {
+      return res.status(result.status).json({ success: false, error: result.error })
+    }
+    const data = await addAttachmentDownloads(result.data, id)
+    return res.status(result.status).json({ success: true, data, source: 'resend' })
   } catch (error) {
     console.error('Mail detail error:', error)
     return res.status(500).json({ success: false, error: 'Gagal memuat email.' })

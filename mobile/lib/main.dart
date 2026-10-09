@@ -142,37 +142,15 @@ class _LoginScreenState extends State<LoginScreen> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               const Spacer(),
-              Row(
-                children: [
-                  Container(
-                    width: 52,
-                    height: 52,
-                    padding: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(
-                      color: ZenosColors.ink,
-                      borderRadius: BorderRadius.circular(15),
-                    ),
-                    child: Image.asset('assets/brand/zenos-logo.png'),
-                  ),
-                  const SizedBox(width: 16),
-                  const Text(
-                    'ZENOS',
-                    style: TextStyle(
-                      color: ZenosColors.ink,
-                      fontSize: 18,
-                      fontWeight: FontWeight.w700,
-                      letterSpacing: 0.6,
-                    ),
-                  ),
-                  const Text(
-                    '.',
-                    style: TextStyle(
-                      color: ZenosColors.amber,
-                      fontSize: 24,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                ],
+              Container(
+                width: 52,
+                height: 52,
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: ZenosColors.ink,
+                  borderRadius: BorderRadius.circular(15),
+                ),
+                child: Image.asset('assets/brand/zenos-logo.png'),
               ),
               const SizedBox(height: 44),
               Text(

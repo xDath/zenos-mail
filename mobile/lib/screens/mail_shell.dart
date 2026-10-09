@@ -1,10 +1,14 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_widget_from_html_core/flutter_widget_from_html_core.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../models/mail_message.dart';
-import '../services/zenos_api.dart';
+import '../models/sender_profile.dart';
 import '../services/push_service.dart';
+import '../services/sender_profile_store.dart';
+import '../services/zenos_api.dart';
 import '../theme/zenos_theme.dart';
 
 class MailShell extends StatefulWidget {
@@ -27,6 +31,8 @@ class _MailShellState extends State<MailShell> {
   int _selectedIndex = 0;
   StreamSubscription<String>? _pushSubscription;
   bool _openingPush = false;
+  final _profileStore = SenderProfileStore();
+  List<SenderProfile> _senderProfiles = builtInSenderProfiles;
 
   @override
   void initState() {
@@ -38,6 +44,17 @@ class _MailShellState extends State<MailShell> {
       final id = PushService.instance.takePendingMessageId();
       if (id != null) _openPushMessage(id);
     });
+    _loadSenderProfiles();
+  }
+
+  Future<void> _loadSenderProfiles() async {
+    final profiles = await _profileStore.load();
+    if (mounted) setState(() => _senderProfiles = profiles);
+  }
+
+  void _saveSenderProfiles(List<SenderProfile> profiles) {
+    setState(() => _senderProfiles = profiles);
+    unawaited(_profileStore.save(profiles).catchError((_) {}));
   }
 
   @override
@@ -55,8 +72,11 @@ class _MailShellState extends State<MailShell> {
       setState(() => _selectedIndex = 0);
       await Navigator.of(context).push(
         _PortalRoute(
-          builder: (_) =>
-              MessageDetailScreen(message: message, api: widget.api),
+          builder: (_) => MessageDetailScreen(
+            message: message,
+            api: widget.api,
+            senderProfiles: _senderProfiles,
+          ),
         ),
       );
     } catch (_) {
@@ -72,10 +92,19 @@ class _MailShellState extends State<MailShell> {
       body: IndexedStack(
         index: _selectedIndex,
         children: [
-          InboxScreen(api: widget.api, useDemoData: widget.useDemoData),
+          InboxScreen(
+            api: widget.api,
+            useDemoData: widget.useDemoData,
+            senderProfiles: _senderProfiles,
+          ),
           SentScreen(api: widget.api, useDemoData: widget.useDemoData),
-          ComposeScreen(api: widget.api),
-          SettingsScreen(api: widget.api, onLogout: widget.onLogout),
+          ComposeScreen(api: widget.api, senderProfiles: _senderProfiles),
+          SettingsScreen(
+            api: widget.api,
+            onLogout: widget.onLogout,
+            senderProfiles: _senderProfiles,
+            onSenderProfilesChanged: _saveSenderProfiles,
+          ),
         ],
       ),
       bottomNavigationBar: _NavigationDock(
@@ -87,10 +116,16 @@ class _MailShellState extends State<MailShell> {
 }
 
 class InboxScreen extends StatefulWidget {
-  const InboxScreen({super.key, this.api, this.useDemoData = false});
+  const InboxScreen({
+    super.key,
+    this.api,
+    this.useDemoData = false,
+    this.senderProfiles = builtInSenderProfiles,
+  });
 
   final ZenosApi? api;
   final bool useDemoData;
+  final List<SenderProfile> senderProfiles;
 
   @override
   State<InboxScreen> createState() => _InboxScreenState();
@@ -104,7 +139,6 @@ class _InboxScreenState extends State<InboxScreen> {
   bool _loading = true;
   String? _error;
   Timer? _searchTimer;
-  bool _newestFirst = true;
 
   @override
   void initState() {
@@ -158,9 +192,6 @@ class _InboxScreenState extends State<InboxScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final visibleMessages = _newestFirst
-        ? _messages
-        : _messages.reversed.toList(growable: false);
     final unread = _messages.where((message) => message.isUnread).length;
 
     return SafeArea(
@@ -207,34 +238,24 @@ class _InboxScreenState extends State<InboxScreen> {
                       ),
                     ),
                     Text(
-                      '${visibleMessages.length} email',
+                      '${_messages.length} email',
                       style: Theme.of(context).textTheme.bodySmall,
-                    ),
-                    const SizedBox(width: 8),
-                    _SquareAction(
-                      icon: _newestFirst
-                          ? Icons.south_rounded
-                          : Icons.north_rounded,
-                      semanticLabel: _newestFirst
-                          ? 'Tampilkan email terlama dahulu'
-                          : 'Tampilkan email terbaru dahulu',
-                      onTap: () => setState(() => _newestFirst = !_newestFirst),
                     ),
                   ],
                 ),
               ),
             ),
-            if (_loading && visibleMessages.isEmpty)
+            if (_loading && _messages.isEmpty)
               const SliverFillRemaining(
                 hasScrollBody: false,
                 child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
               )
-            else if (_error != null && visibleMessages.isEmpty)
+            else if (_error != null && _messages.isEmpty)
               SliverFillRemaining(
                 hasScrollBody: false,
                 child: _InboxError(message: _error!, onRetry: _load),
               )
-            else if (visibleMessages.isEmpty)
+            else if (_messages.isEmpty)
               const SliverFillRemaining(
                 hasScrollBody: false,
                 child: _EmptyInbox(),
@@ -243,16 +264,17 @@ class _InboxScreenState extends State<InboxScreen> {
               SliverPadding(
                 padding: const EdgeInsets.fromLTRB(20, 0, 20, 36),
                 sliver: SliverList.separated(
-                  itemCount: visibleMessages.length,
+                  itemCount: _messages.length,
                   separatorBuilder: (_, _) => const Divider(height: 1),
                   itemBuilder: (context, index) => MailRow(
-                    message: visibleMessages[index],
+                    message: _messages[index],
                     query: _query,
                     onTap: () => Navigator.of(context).push(
                       _PortalRoute(
                         builder: (_) => MessageDetailScreen(
-                          message: visibleMessages[index],
+                          message: _messages[index],
                           api: widget.api,
+                          senderProfiles: widget.senderProfiles,
                         ),
                       ),
                     ),
@@ -304,61 +326,25 @@ class _InboxHeader extends StatelessWidget {
                 ),
                 child: Image.asset('assets/brand/zenos-logo.png'),
               ),
-              const SizedBox(width: 14),
-              const Text(
-                'ZENOS',
-                style: TextStyle(
-                  color: ZenosColors.ink,
-                  fontSize: 15,
-                  fontWeight: FontWeight.w700,
-                  letterSpacing: 0.6,
-                ),
-              ),
-              const Text(
-                '.',
-                style: TextStyle(
-                  color: ZenosColors.amber,
-                  fontSize: 20,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
               const Spacer(),
+              Container(
+                width: 6,
+                height: 6,
+                decoration: const BoxDecoration(
+                  color: ZenosColors.tealBright,
+                  shape: BoxShape.circle,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Text(
+                '$unreadCount baru',
+                style: Theme.of(context).textTheme.labelMedium,
+              ),
+              const SizedBox(width: 14),
               _SquareAction(
                 icon: Icons.refresh_rounded,
                 semanticLabel: 'Segarkan kotak masuk',
                 onTap: () => onRefresh(),
-              ),
-            ],
-          ),
-          const SizedBox(height: 32),
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              Expanded(
-                child: Text(
-                  'Kotak masuk',
-                  style: Theme.of(context).textTheme.displaySmall,
-                ),
-              ),
-              Padding(
-                padding: const EdgeInsets.only(bottom: 3),
-                child: Row(
-                  children: [
-                    Container(
-                      width: 6,
-                      height: 6,
-                      decoration: const BoxDecoration(
-                        color: ZenosColors.tealBright,
-                        shape: BoxShape.circle,
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Text(
-                      '$unreadCount baru',
-                      style: Theme.of(context).textTheme.labelMedium,
-                    ),
-                  ],
-                ),
               ),
             ],
           ),
@@ -505,26 +491,28 @@ class MailRow extends StatelessWidget {
                   children: [
                     Row(
                       children: [
-                        Expanded(
+                        Flexible(
                           child: HighlightedText(
                             message.senderName,
                             query: query,
                             style: Theme.of(context).textTheme.titleMedium,
                           ),
                         ),
-                        const SizedBox(width: 12),
+                        const SizedBox(width: 5),
+                        Text(
+                          '(${_compactEmail(message.senderAddress)})',
+                          maxLines: 1,
+                          style: Theme.of(context).textTheme.bodySmall
+                              ?.copyWith(color: ZenosColors.tealBright),
+                        ),
+                        const Spacer(),
                         if (message.hasAttachment) ...[
                           const Icon(
                             Icons.attach_file_rounded,
                             size: 15,
                             color: ZenosColors.muted,
                           ),
-                          const SizedBox(width: 8),
                         ],
-                        Text(
-                          _formatDate(message.receivedAt),
-                          style: Theme.of(context).textTheme.bodySmall,
-                        ),
                       ],
                     ),
                     const SizedBox(height: 9),
@@ -542,13 +530,23 @@ class MailRow extends StatelessWidget {
                       style: Theme.of(context).textTheme.bodyMedium,
                     ),
                     const SizedBox(height: 11),
-                    Text(
-                      'ke ${message.recipients.join(', ')}',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: ZenosColors.tealBright,
-                      ),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            message.recipients.join(', '),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: Theme.of(context).textTheme.bodySmall
+                                ?.copyWith(color: ZenosColors.tealBright),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Text(
+                          _formatDate(message.receivedAt),
+                          style: Theme.of(context).textTheme.bodySmall,
+                        ),
+                      ],
                     ),
                   ],
                 ),
@@ -561,7 +559,7 @@ class MailRow extends StatelessWidget {
   }
 
   String _formatDate(DateTime value) {
-    final now = DateTime(2026, 10, 8);
+    final now = DateTime.now();
     if (value.year == now.year &&
         value.month == now.month &&
         value.day == now.day) {
@@ -653,10 +651,16 @@ class HighlightedText extends StatelessWidget {
 }
 
 class MessageDetailScreen extends StatefulWidget {
-  const MessageDetailScreen({super.key, required this.message, this.api});
+  const MessageDetailScreen({
+    super.key,
+    required this.message,
+    this.api,
+    this.senderProfiles = builtInSenderProfiles,
+  });
 
   final MailMessage message;
   final ZenosApi? api;
+  final List<SenderProfile> senderProfiles;
 
   @override
   State<MessageDetailScreen> createState() => _MessageDetailScreenState();
@@ -724,21 +728,17 @@ class _MessageDetailScreenState extends State<MessageDetailScreen> {
                     if (_loading && _message.body.isEmpty)
                       const LinearProgressIndicator(minHeight: 2)
                     else
-                      Text(
-                        _message.body.isNotEmpty
-                            ? _message.body
-                            : _plainText(_message.html),
-                        style: Theme.of(context).textTheme.bodyLarge,
-                      ),
-                    if (_message.hasAttachment) ...[
+                      _EmailBody(message: _message),
+                    if (_message.attachments.any(
+                      (attachment) => !attachment.isInline,
+                    )) ...[
                       const SizedBox(height: 34),
-                      for (final name
-                          in _message.attachmentNames.isEmpty
-                              ? const ['Lampiran email']
-                              : _message.attachmentNames)
+                      for (final attachment in _message.attachments.where(
+                        (attachment) => !attachment.isInline,
+                      ))
                         Padding(
                           padding: const EdgeInsets.only(bottom: 10),
-                          child: _AttachmentTile(name: name),
+                          child: _AttachmentTile(attachment: attachment),
                         ),
                     ],
                   ],
@@ -796,8 +796,9 @@ class _MessageDetailScreenState extends State<MessageDetailScreen> {
         ? '\n\n--- Pesan diteruskan ---\nDari: ${_message.senderAddress}\nKepada: ${_message.recipients.join(', ')}\nSubjek: ${_message.subject}\n\n$body'
         : '\n\n--- Pesan sebelumnya ---\n$body';
     final initialFrom = _message.recipients.firstWhere(
-      (address) =>
-          address == 'hello@zenos.studio' || address == 'inbox@alte.codes',
+      (address) => widget.senderProfiles.any(
+        (profile) => profile.email.toLowerCase() == address.toLowerCase(),
+      ),
       orElse: () => 'hello@zenos.studio',
     );
     Navigator.of(context).push(
@@ -811,6 +812,7 @@ class _MessageDetailScreenState extends State<MessageDetailScreen> {
             initialTo: forward ? '' : _message.senderAddress,
             initialSubject: subject,
             initialBody: quoted,
+            senderProfiles: widget.senderProfiles,
           ),
         ),
       ),
@@ -850,37 +852,85 @@ class _AddressBlock extends StatelessWidget {
 }
 
 class _AttachmentTile extends StatelessWidget {
-  const _AttachmentTile({required this.name});
+  const _AttachmentTile({required this.attachment});
 
-  final String name;
+  final MailAttachment attachment;
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(18),
-      decoration: BoxDecoration(
-        color: ZenosColors.secondaryGround,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: ZenosColors.hairline),
+    return InkWell(
+      onTap: attachment.downloadUrl.isEmpty
+          ? null
+          : () => _launchExternal(attachment.downloadUrl),
+      borderRadius: BorderRadius.circular(16),
+      child: Container(
+        padding: const EdgeInsets.all(18),
+        decoration: BoxDecoration(
+          color: ZenosColors.secondaryGround,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: ZenosColors.hairline),
+        ),
+        child: Row(
+          children: [
+            const Icon(Icons.description_outlined, color: ZenosColors.amber),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    attachment.filename,
+                    style: Theme.of(context).textTheme.labelLarge,
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    attachment.downloadUrl.isEmpty
+                        ? 'Lampiran pada email ini'
+                        : 'Ketuk untuk membuka lampiran',
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                ],
+              ),
+            ),
+            if (attachment.downloadUrl.isNotEmpty)
+              const Icon(Icons.open_in_new_rounded, size: 18),
+          ],
+        ),
       ),
-      child: Row(
-        children: [
-          const Icon(Icons.description_outlined, color: ZenosColors.amber),
-          const SizedBox(width: 14),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(name, style: Theme.of(context).textTheme.labelLarge),
-                const SizedBox(height: 3),
-                Text(
-                  'Lampiran pada email ini',
-                  style: Theme.of(context).textTheme.bodySmall,
-                ),
-              ],
+    );
+  }
+}
+
+class _EmailBody extends StatelessWidget {
+  const _EmailBody({required this.message});
+
+  final MailMessage message;
+
+  @override
+  Widget build(BuildContext context) {
+    if (message.html.isEmpty) {
+      return SelectableText(
+        message.body.isEmpty ? '(email kosong)' : message.body,
+        style: Theme.of(context).textTheme.bodyLarge,
+      );
+    }
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(16),
+      child: ColoredBox(
+        color: Colors.white,
+        child: Padding(
+          padding: const EdgeInsets.all(14),
+          child: Theme(
+            data: ThemeData.light(useMaterial3: true),
+            child: HtmlWidget(
+              _htmlWithInlineImages(message),
+              onTapUrl: (url) async {
+                await _launchExternal(url);
+                return true;
+              },
             ),
           ),
-        ],
+        ),
       ),
     );
   }
@@ -896,6 +946,7 @@ class ComposeScreen extends StatefulWidget {
     this.initialTo = '',
     this.initialSubject = '',
     this.initialBody = '',
+    this.senderProfiles = builtInSenderProfiles,
   });
 
   final ZenosApi? api;
@@ -905,13 +956,17 @@ class ComposeScreen extends StatefulWidget {
   final String initialTo;
   final String initialSubject;
   final String initialBody;
+  final List<SenderProfile> senderProfiles;
 
   @override
   State<ComposeScreen> createState() => _ComposeScreenState();
 }
 
 class _ComposeScreenState extends State<ComposeScreen> {
-  late String _from;
+  static const _manualSender = '__manual__';
+  late String _senderChoice;
+  late final TextEditingController _senderName;
+  late final TextEditingController _manualFrom;
   late final TextEditingController _to;
   late final TextEditingController _subject;
   late final TextEditingController _body;
@@ -920,14 +975,37 @@ class _ComposeScreenState extends State<ComposeScreen> {
   @override
   void initState() {
     super.initState();
-    _from = widget.initialFrom;
+    final selected = widget.senderProfiles.where(
+      (profile) => profile.email == widget.initialFrom,
+    );
+    _senderChoice = selected.isEmpty ? _manualSender : widget.initialFrom;
+    _senderName = TextEditingController(
+      text: selected.isEmpty ? '' : selected.first.name,
+    );
+    _manualFrom = TextEditingController(
+      text: selected.isEmpty ? widget.initialFrom : '',
+    );
     _to = TextEditingController(text: widget.initialTo);
     _subject = TextEditingController(text: widget.initialSubject);
     _body = TextEditingController(text: widget.initialBody);
   }
 
   @override
+  void didUpdateWidget(covariant ComposeScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (_senderChoice != _manualSender &&
+        !widget.senderProfiles.any(
+          (profile) => profile.email == _senderChoice,
+        )) {
+      _manualFrom.text = _senderChoice;
+      _senderChoice = _manualSender;
+    }
+  }
+
+  @override
   void dispose() {
+    _senderName.dispose();
+    _manualFrom.dispose();
     _to.dispose();
     _subject.dispose();
     _body.dispose();
@@ -935,15 +1013,25 @@ class _ComposeScreenState extends State<ComposeScreen> {
   }
 
   Future<void> _send() async {
+    final from = _senderChoice == _manualSender
+        ? _manualFrom.text.trim().toLowerCase()
+        : _senderChoice;
+    final senderName = _senderName.text.trim();
     final recipients = _to.text
         .split(RegExp(r'[,;\s]+'))
         .where((address) => address.trim().isNotEmpty)
         .toList();
-    if (recipients.isEmpty ||
+    if (!isValidSenderEmail(from) ||
+        senderName.isEmpty ||
+        recipients.isEmpty ||
         _subject.text.trim().isEmpty ||
         _body.text.trim().isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Lengkapi penerima, subjek, dan pesan.')),
+        const SnackBar(
+          content: Text(
+            'Lengkapi nama dan alamat pengirim, penerima, subjek, serta pesan.',
+          ),
+        ),
       );
       return;
     }
@@ -956,7 +1044,8 @@ class _ComposeScreenState extends State<ComposeScreen> {
     setState(() => _sending = true);
     try {
       await widget.api!.send(
-        from: _from,
+        from: from,
+        senderName: senderName,
         to: recipients,
         subject: _subject.text.trim(),
         text: _body.text.trim(),
@@ -989,32 +1078,69 @@ class _ComposeScreenState extends State<ComposeScreen> {
         children: [
           widget.standalone
               ? _StandaloneComposeHeader(title: widget.title)
-              : const _SectionHeader(index: '02', title: 'Tulis email'),
+              : const _SectionHeader(title: 'Tulis email'),
           Expanded(
             child: SingleChildScrollView(
               padding: const EdgeInsets.fromLTRB(20, 26, 20, 36),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('Dari', style: Theme.of(context).textTheme.labelMedium),
+                  Text(
+                    'Identitas pengirim',
+                    style: Theme.of(context).textTheme.labelMedium,
+                  ),
                   const SizedBox(height: 9),
+                  TextField(
+                    controller: _senderName,
+                    textCapitalization: TextCapitalization.words,
+                    decoration: const InputDecoration(
+                      labelText: 'Nama pengirim',
+                    ),
+                  ),
+                  const SizedBox(height: 16),
                   DropdownButtonFormField<String>(
-                    initialValue: _from,
-                    decoration: const InputDecoration(),
+                    key: ValueKey(
+                      '$_senderChoice-${widget.senderProfiles.length}',
+                    ),
+                    initialValue: _senderChoice,
+                    decoration: const InputDecoration(
+                      labelText: 'Alamat pengirim',
+                    ),
                     dropdownColor: ZenosColors.raised,
-                    items: const [
-                      DropdownMenuItem(
-                        value: 'hello@zenos.studio',
-                        child: Text('hello@zenos.studio'),
-                      ),
-                      DropdownMenuItem(
-                        value: 'inbox@alte.codes',
-                        child: Text('inbox@alte.codes'),
+                    items: [
+                      for (final profile in widget.senderProfiles)
+                        DropdownMenuItem(
+                          value: profile.email,
+                          child: Text(profile.email),
+                        ),
+                      const DropdownMenuItem(
+                        value: _manualSender,
+                        child: Text('Masukkan alamat lain…'),
                       ),
                     ],
-                    onChanged: (value) =>
-                        setState(() => _from = value ?? _from),
+                    onChanged: (value) {
+                      if (value == null) return;
+                      setState(() => _senderChoice = value);
+                      if (value != _manualSender) {
+                        final profile = widget.senderProfiles.firstWhere(
+                          (profile) => profile.email == value,
+                        );
+                        _senderName.text = profile.name;
+                      }
+                    },
                   ),
+                  if (_senderChoice == _manualSender) ...[
+                    const SizedBox(height: 16),
+                    TextField(
+                      controller: _manualFrom,
+                      keyboardType: TextInputType.emailAddress,
+                      autocorrect: false,
+                      decoration: const InputDecoration(
+                        labelText: 'Email pengirim manual',
+                        hintText: 'nama@domain-terverifikasi.com',
+                      ),
+                    ),
+                  ],
                   const SizedBox(height: 22),
                   TextField(
                     controller: _to,
@@ -1112,7 +1238,14 @@ class _SentScreenState extends State<SentScreen> {
       bottom: false,
       child: Column(
         children: [
-          const _SectionHeader(index: '01', title: 'Terkirim'),
+          _SectionHeader(
+            title: 'Terkirim',
+            action: _SquareAction(
+              icon: Icons.refresh_rounded,
+              semanticLabel: 'Segarkan email terkirim',
+              onTap: _load,
+            ),
+          ),
           Expanded(
             child: _loading
                 ? const Center(child: CircularProgressIndicator(strokeWidth: 2))
@@ -1151,10 +1284,18 @@ class _SentScreenState extends State<SentScreen> {
 }
 
 class SettingsScreen extends StatefulWidget {
-  const SettingsScreen({super.key, this.api, this.onLogout});
+  const SettingsScreen({
+    super.key,
+    this.api,
+    this.onLogout,
+    this.senderProfiles = builtInSenderProfiles,
+    this.onSenderProfilesChanged,
+  });
 
   final ZenosApi? api;
   final VoidCallback? onLogout;
+  final List<SenderProfile> senderProfiles;
+  final ValueChanged<List<SenderProfile>>? onSenderProfilesChanged;
 
   @override
   State<SettingsScreen> createState() => _SettingsScreenState();
@@ -1162,6 +1303,92 @@ class SettingsScreen extends StatefulWidget {
 
 class _SettingsScreenState extends State<SettingsScreen> {
   bool _syncing = false;
+
+  Future<void> _addSenderProfile() async {
+    final name = TextEditingController();
+    final email = TextEditingController();
+    String? validationError;
+    final profile = await showDialog<SenderProfile>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: const Text('Profil email baru'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: name,
+                autofocus: true,
+                textCapitalization: TextCapitalization.words,
+                decoration: const InputDecoration(labelText: 'Nama pengirim'),
+              ),
+              const SizedBox(height: 14),
+              TextField(
+                controller: email,
+                keyboardType: TextInputType.emailAddress,
+                autocorrect: false,
+                decoration: const InputDecoration(
+                  labelText: 'Alamat email',
+                  hintText: 'nama@domain.com',
+                ),
+              ),
+              if (validationError != null) ...[
+                const SizedBox(height: 12),
+                Text(
+                  validationError!,
+                  style: TextStyle(
+                    color: Theme.of(context).colorScheme.error,
+                    fontSize: 12,
+                  ),
+                ),
+              ],
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: const Text('Batal'),
+            ),
+            FilledButton(
+              onPressed: () {
+                final normalizedEmail = email.text.trim().toLowerCase();
+                if (name.text.trim().isEmpty ||
+                    !isValidSenderEmail(normalizedEmail)) {
+                  setDialogState(
+                    () =>
+                        validationError = 'Masukkan nama dan email yang valid.',
+                  );
+                  return;
+                }
+                Navigator.of(dialogContext).pop(
+                  SenderProfile(name: name.text.trim(), email: normalizedEmail),
+                );
+              },
+              child: const Text('Simpan'),
+            ),
+          ],
+        ),
+      ),
+    );
+    name.dispose();
+    email.dispose();
+    if (profile == null || !mounted) return;
+    if (widget.senderProfiles.any((item) => item.email == profile.email)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Alamat itu sudah ada di profil.')),
+      );
+      return;
+    }
+    widget.onSenderProfilesChanged?.call([...widget.senderProfiles, profile]);
+  }
+
+  void _removeSenderProfile(SenderProfile profile) {
+    widget.onSenderProfilesChanged?.call(
+      widget.senderProfiles
+          .where((item) => item.email != profile.email)
+          .toList(),
+    );
+  }
 
   Future<void> _logout() async {
     if (widget.api != null) {
@@ -1196,11 +1423,37 @@ class _SettingsScreenState extends State<SettingsScreen> {
       bottom: false,
       child: Column(
         children: [
-          const _SectionHeader(index: '03', title: 'Pengaturan'),
+          const _SectionHeader(title: 'Pengaturan'),
           Expanded(
             child: ListView(
               padding: const EdgeInsets.fromLTRB(20, 22, 20, 36),
               children: [
+                const _SettingsLabel('PROFIL PENGIRIM'),
+                for (final profile in widget.senderProfiles)
+                  _SettingsRow(
+                    title: profile.name,
+                    subtitle: profile.email,
+                    statusColor: profile.isBuiltIn
+                        ? ZenosColors.tealBright
+                        : null,
+                    trailing: profile.isBuiltIn
+                        ? null
+                        : IconButton(
+                            onPressed: () => _removeSenderProfile(profile),
+                            tooltip: 'Hapus profil',
+                            icon: const Icon(Icons.close_rounded, size: 19),
+                          ),
+                  ),
+                _SettingsRow(
+                  title: 'Tambah profil email',
+                  subtitle: 'Simpan nama dan alamat pengirim baru',
+                  onTap: _addSenderProfile,
+                  trailing: const Icon(
+                    Icons.add_rounded,
+                    color: ZenosColors.secondaryInk,
+                  ),
+                ),
+                const SizedBox(height: 30),
                 const _SettingsLabel('DOMAIN'),
                 const _SettingsRow(
                   title: 'zenos.studio',
@@ -1258,10 +1511,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
 }
 
 class _SectionHeader extends StatelessWidget {
-  const _SectionHeader({required this.index, required this.title});
+  const _SectionHeader({required this.title, this.action});
 
-  final String index;
   final String title;
+  final Widget? action;
 
   @override
   Widget build(BuildContext context) {
@@ -1278,12 +1531,7 @@ class _SectionHeader extends StatelessWidget {
           Expanded(
             child: Text(title, style: Theme.of(context).textTheme.displaySmall),
           ),
-          Text(
-            '/ $index',
-            style: Theme.of(
-              context,
-            ).textTheme.labelMedium?.copyWith(color: ZenosColors.amber),
-          ),
+          if (action != null) action!,
         ],
       ),
     );
@@ -1601,6 +1849,40 @@ class _InboxError extends StatelessWidget {
       ),
     );
   }
+}
+
+String _compactEmail(String value) {
+  final parts = value.trim().split('@');
+  if (parts.length != 2 || value.length <= 32) return value;
+  final local = parts.first;
+  final domain = parts.last;
+  final available = 32 - domain.length - 2;
+  final keep = available.clamp(3, 10);
+  final compactLocal = local.length <= keep
+      ? local
+      : '${local.substring(0, keep)}…';
+  return '$compactLocal@$domain';
+}
+
+String _htmlWithInlineImages(MailMessage message) {
+  var html = message.html;
+  for (final attachment in message.attachments) {
+    if (attachment.contentId.isEmpty || attachment.downloadUrl.isEmpty) {
+      continue;
+    }
+    final contentId = attachment.contentId.replaceAll(RegExp(r'[<>]'), '');
+    html = html.replaceAll(
+      RegExp('cid:${RegExp.escape(contentId)}', caseSensitive: false),
+      attachment.downloadUrl,
+    );
+  }
+  return html;
+}
+
+Future<void> _launchExternal(String value) async {
+  final uri = Uri.tryParse(value);
+  if (uri == null || !{'http', 'https', 'mailto'}.contains(uri.scheme)) return;
+  await launchUrl(uri, mode: LaunchMode.externalApplication);
 }
 
 String _plainText(String html) {
